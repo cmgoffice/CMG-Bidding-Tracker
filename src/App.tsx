@@ -1,4 +1,5 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useEffect } from "react";
+import { Routes, Route } from "react-router-dom";
 import {
   collection,
   doc,
@@ -6,14 +7,24 @@ import {
   setDoc,
   deleteDoc,
   onSnapshot,
+  query,
+  where,
 } from "firebase/firestore";
-import { db } from "./firebase";
+import { db, storage } from "./firebase";
+import { APP_NAME } from "./firebase";
+import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
+import { useAuth } from "./contexts/AuthContext";
+import ProtectedRoute from "./components/ProtectedRoute";
+import ProfileDropdown from "./components/ProfileDropdown";
+import UserManagementView from "./components/UserManagementView";
+import LoginPage from "./pages/LoginPage";
+import RegisterPage from "./pages/RegisterPage";
+import PendingPage from "./pages/PendingPage";
 import {
   Briefcase,
   Users,
   BarChart3,
   PieChart,
-  Settings,
   Plus,
   Edit,
   Trash2,
@@ -31,39 +42,112 @@ import {
   List,
   ArrowUpDown,
   ArrowUp,
-  ArrowDown
+  ArrowDown,
+  Star,
+  Paperclip,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 
-// --- MOCK DATA ---
-const roles = [
-  { id: "Admin", name: "Admin", canEdit: true, canViewFinancials: true },
-  {
-    id: "BDM",
-    name: "Bidding Manager",
-    canEdit: true,
-    canViewFinancials: true,
-  },
-  {
-    id: "MD",
-    name: "Managing Director",
-    canEdit: false,
-    canViewFinancials: true,
-  },
-  {
-    id: "AdminBid",
-    name: "Admin for Bidding",
-    canEdit: true,
-    canViewFinancials: true,
-  },
-  {
-    id: "SPB",
-    name: "Support Bidding",
-    canEdit: true,
-    canViewFinancials: false,
-  },
-  { id: "UVW", name: "User Viewer", canEdit: false, canViewFinancials: false },
-];
+// --- FILE UPLOAD FIELD COMPONENT ---
+const FileUploadField = ({
+  label,
+  currentUrl,
+  storagePath,
+  onUpload,
+  accept = "*/*",
+}: {
+  label: string;
+  currentUrl: string;
+  storagePath: string;
+  onUpload: (url: string) => void;
+  accept?: string;
+}) => {
+  const [progress, setProgress] = React.useState<number | null>(null);
+  const [uploadError, setUploadError] = React.useState<string | null>(null);
+  const inputRef = React.useRef<HTMLInputElement>(null);
+
+  const handleFile = (file: File) => {
+    if (!file) return;
+    setUploadError(null);
+    const storageRef = ref(storage, `${storagePath}/${Date.now()}_${file.name}`);
+    const task = uploadBytesResumable(storageRef, file);
+    task.on(
+      "state_changed",
+      snap => setProgress(Math.round((snap.bytesTransferred / snap.totalBytes) * 100)),
+      err => { setUploadError(err.message); setProgress(null); },
+      async () => {
+        const url = await getDownloadURL(task.snapshot.ref);
+        onUpload(url);
+        setProgress(null);
+      }
+    );
+  };
+
+  const fileName = currentUrl
+    ? decodeURIComponent(currentUrl.split("/o/")[1]?.split("?")[0] ?? "").split("/").pop()?.replace(/^\d+_/, "") || "ดูไฟล์"
+    : "";
+
+  return (
+    <div>
+      <label className="block text-xs font-medium mb-1 text-gray-600 flex items-center gap-1">
+        <Paperclip size={12} className="text-blue-500" /> {label}
+      </label>
+      <div className="flex items-center gap-2 flex-wrap">
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          disabled={progress !== null}
+          className="flex items-center gap-1.5 px-3 py-1.5 border border-blue-300 rounded-lg text-xs text-blue-600 bg-blue-50 hover:bg-blue-100 transition disabled:opacity-50 whitespace-nowrap"
+        >
+          <Upload size={13} />
+          {progress !== null ? `Uploading ${progress}%` : currentUrl ? "Replace File" : "Upload File"}
+        </button>
+        {currentUrl && (
+          <a href={currentUrl} target="_blank" rel="noreferrer"
+            className="flex items-center gap-1 text-xs text-blue-600 hover:underline truncate max-w-[200px]">
+            <FileText size={12} /> {fileName}
+          </a>
+        )}
+        <input
+          ref={inputRef}
+          type="file"
+          accept={accept}
+          className="hidden"
+          onChange={e => e.target.files?.[0] && handleFile(e.target.files[0])}
+        />
+      </div>
+      {progress !== null && (
+        <div className="mt-1 h-1 bg-gray-200 rounded-full overflow-hidden">
+          <div className="h-full bg-blue-500 transition-all duration-200" style={{ width: `${progress}%` }} />
+        </div>
+      )}
+      {uploadError && <p className="text-xs text-red-500 mt-0.5 truncate">{uploadError}</p>}
+    </div>
+  );
+};
+
+// --- ROLE PERMISSION MAPPING ---
+const ROLE_CAN_EDIT = ["MasterAdmin", "Admin", "BDM", "AdminBid", "SPB", "Creator"];
+const ROLE_CAN_VIEW_FINANCIALS = ["MasterAdmin", "Admin", "BDM", "MD", "AdminBid"];
+
+// --- ROOT APP WITH ROUTING ---
+export default function App() {
+  return (
+    <Routes>
+      <Route path="/login"    element={<LoginPage />} />
+      <Route path="/register" element={<RegisterPage />} />
+      <Route path="/pending"  element={<PendingPage />} />
+      <Route
+        path="/*"
+        element={
+          <ProtectedRoute>
+            <CMGBiddingApp />
+          </ProtectedRoute>
+        }
+      />
+    </Routes>
+  );
+}
 
 const initialClients = [
   {
@@ -124,6 +208,10 @@ const initialProjects = [
     attBidBond: "",
     status: "Submitted",
     biddingNote: "",
+    starred: false,
+    submitPriceFile: "",
+    projectOverviewFile: "",
+    rfqFile: "",
   },
   {
     id: "2026-0002",
@@ -149,6 +237,10 @@ const initialProjects = [
     attBidBond: "",
     status: "Success",
     biddingNote: "",
+    starred: false,
+    submitPriceFile: "",
+    projectOverviewFile: "",
+    rfqFile: "",
   },
   {
     id: "2025-0089",
@@ -174,6 +266,10 @@ const initialProjects = [
     attBidBond: "",
     status: "Not_Success",
     biddingNote: "ราคาแพงกว่าคู่แข่ง 10%",
+    starred: false,
+    submitPriceFile: "",
+    projectOverviewFile: "",
+    rfqFile: "",
   },
 ];
 
@@ -202,6 +298,10 @@ const emptyProject: typeof initialProjects[0] = {
   attBidBond: "",
   status: "Create",
   biddingNote: "",
+  starred: false,
+  submitPriceFile: "",
+  projectOverviewFile: "",
+  rfqFile: "",
 };
 
 const emptyClient: typeof initialClients[0] = {
@@ -221,9 +321,20 @@ const emptyClient: typeof initialClients[0] = {
 };
 
 // --- MAIN APPLICATION COMPONENT ---
-export default function CMGBiddingApp() {
+function CMGBiddingApp() {
+  const { userProfile, hasRole, pendingCount, setPendingCount } = useAuth();
+
+  // Derive permissions from auth roles
+  const currentRole = {
+    canEdit: userProfile ? userProfile.role.some(r => ROLE_CAN_EDIT.includes(r)) : false,
+    canViewFinancials: userProfile ? userProfile.role.some(r => ROLE_CAN_VIEW_FINANCIALS.includes(r)) : false,
+    name: userProfile?.role.join(", ") ?? "",
+  };
+  const isMasterAdmin = hasRole(["MasterAdmin"]);
+
   const [activeTab, setActiveTab] = useState("projects");
-  const [currentRole, setCurrentRole] = useState(roles[1]); // Default BDM
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [projects, setProjects] = useState<typeof initialProjects>([]);
   const [clients, setClients] = useState<typeof initialClients>([]);
   const [searchTerm, setSearchTerm] = useState("");
@@ -242,6 +353,15 @@ export default function CMGBiddingApp() {
   const [projectSortDir, setProjectSortDir] = useState<"asc" | "desc">("asc");
   const [reportDate, setReportDate] = useState<string>(new Date().toISOString().split("T")[0]);
   const [c1StatusFilter, setC1StatusFilter] = useState<string | null>(null);
+
+  // --- PENDING USERS COUNT (realtime for sidebar badge) ---
+  useEffect(() => {
+    if (!isMasterAdmin) return;
+    const col = collection(db, APP_NAME, "root", "users");
+    const q = query(col, where("status", "==", "pending"));
+    const unsub = onSnapshot(q, (snap) => setPendingCount(snap.size));
+    return unsub;
+  }, [isMasterAdmin, setPendingCount]);
 
   // --- FIRESTORE INTEGRATION ---
   const projectsCol = collection(db, "projects");
@@ -293,6 +413,11 @@ export default function CMGBiddingApp() {
 
   const deleteProject = async (id: string) => {
     await deleteDoc(doc(db, "projects", id));
+  };
+
+  const toggleStar = async (proj: typeof initialProjects[0]) => {
+    const updated = { ...proj, starred: !proj.starred };
+    await setDoc(doc(db, "projects", proj.id), updated);
   };
 
   const saveClient = async (client: typeof initialClients[0]) => {
@@ -448,6 +573,10 @@ export default function CMGBiddingApp() {
           attBidBond: row["Att Bid Bond"] || "",
           status: row["Status"] || "Create",
           biddingNote: row["Bidding Note"] || "",
+          starred: false,
+          submitPriceFile: "",
+          projectOverviewFile: "",
+          rfqFile: "",
         };
         if (projectPayload.name) {
           await saveProject(projectPayload);
@@ -543,10 +672,13 @@ export default function CMGBiddingApp() {
 
   // --- PART A: BIDDING PROJECT COMPONENT ---
   const ProjectView = () => {
+    const [showStarredOnly, setShowStarredOnly] = React.useState(false);
+
     const filtered = projects.filter(
       (p) =>
-        String(p.name || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
-        String(p.folderNo || "").toLowerCase().includes(searchTerm.toLowerCase())
+        (String(p.name || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+        String(p.folderNo || "").toLowerCase().includes(searchTerm.toLowerCase())) &&
+        (!showStarredOnly || p.starred)
     );
 
     const filteredProjects = [...filtered].sort((a, b) => {
@@ -624,6 +756,24 @@ export default function CMGBiddingApp() {
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
             </div>
+            {/* Starred filter */}
+            <button
+              onClick={() => setShowStarredOnly(v => !v)}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm font-medium transition ${
+                showStarredOnly
+                  ? "bg-yellow-50 border-yellow-400 text-yellow-700"
+                  : "bg-white border-gray-300 text-gray-500 hover:bg-gray-50"
+              }`}
+              title="แสดงเฉพาะโปรเจคที่ติดดาว"
+            >
+              <Star size={15} className={showStarredOnly ? "fill-yellow-400 text-yellow-400" : ""} />
+              Starred
+              {showStarredOnly && (
+                <span className="ml-0.5 px-1.5 py-0.5 bg-yellow-400 text-white text-[10px] font-bold rounded-full">
+                  {projects.filter(p => p.starred).length}
+                </span>
+              )}
+            </button>
             {/* Sort buttons */}
             <button
               onClick={() => toggleSort("folderNo")}
@@ -667,6 +817,7 @@ export default function CMGBiddingApp() {
                       ) : <ArrowUpDown size={13} className="text-gray-400" />}
                     </span>
                   </th>
+                  <th className="p-4 border-b w-10 text-center"><Star size={14} className="mx-auto text-gray-400" /></th>
                   <th className="p-4 border-b">Project Name</th>
                   <th className="p-4 border-b">Customer</th>
                   <th className="p-4 border-b">Type</th>
@@ -684,6 +835,18 @@ export default function CMGBiddingApp() {
                     className="hover:bg-gray-50 border-b last:border-0"
                   >
                     <td className="p-4 font-medium text-blue-600">{proj.folderNo}</td>
+                    <td className="p-4 text-center">
+                      <button
+                        onClick={() => toggleStar(proj)}
+                        title={proj.starred ? "ยกเลิกติดดาว" : "ติดดาวโปรเจคนี้"}
+                        className="transition-transform hover:scale-125"
+                      >
+                        <Star
+                          size={17}
+                          className={proj.starred ? "fill-yellow-400 text-yellow-400" : "text-gray-300 hover:text-yellow-400"}
+                        />
+                      </button>
+                    </td>
                     <td className="p-4">{proj.name}</td>
                     <td className="p-4">{proj.customerName}</td>
                     <td className="p-4">{proj.typeProject}</td>
@@ -977,16 +1140,26 @@ export default function CMGBiddingApp() {
           <div className="border-b border-gray-100 px-5 py-3 flex flex-wrap gap-2 items-center bg-white">
             <span className="text-xs font-semibold text-gray-500 mr-1 whitespace-nowrap">Filter:</span>
             {([
-              { label: "All", value: null, active: "bg-gray-700 text-white border-gray-700", idle: "bg-white text-gray-600 border-gray-300 hover:bg-gray-50" },
-              { label: "Submitted", value: "Submitted", active: "bg-blue-600 text-white border-blue-600", idle: "bg-white text-blue-600 border-blue-300 hover:bg-blue-50" },
-              { label: "Final Price", value: "FinalPrice", active: "bg-purple-600 text-white border-purple-600", idle: "bg-white text-purple-600 border-purple-300 hover:bg-purple-50" },
-              { label: "Negotiate", value: "Negotiate", active: "bg-yellow-500 text-white border-yellow-500", idle: "bg-white text-yellow-600 border-yellow-300 hover:bg-yellow-50" },
-              { label: "Create", value: "Create", active: "bg-slate-500 text-white border-slate-500", idle: "bg-white text-slate-600 border-slate-300 hover:bg-slate-50" },
-              { label: "Hold", value: "Hold", active: "bg-orange-500 text-white border-orange-500", idle: "bg-white text-orange-600 border-orange-300 hover:bg-orange-50" },
-              { label: "Success", value: "Success", active: "bg-green-600 text-white border-green-600", idle: "bg-white text-green-600 border-green-300 hover:bg-green-50" },
+              { label: "All",        value: null,          active: "bg-gray-700 text-white border-gray-700",     idle: "bg-white text-gray-600 border-gray-300 hover:bg-gray-50" },
+              { label: "Submitted",  value: "Submitted",   active: "bg-blue-600 text-white border-blue-600",     idle: "bg-white text-blue-600 border-blue-300 hover:bg-blue-50" },
+              { label: "Final Price",value: "FinalPrice",  active: "bg-purple-600 text-white border-purple-600", idle: "bg-white text-purple-600 border-purple-300 hover:bg-purple-50" },
+              { label: "Negotiate",  value: "Negotiate",   active: "bg-yellow-500 text-white border-yellow-500", idle: "bg-white text-yellow-600 border-yellow-300 hover:bg-yellow-50" },
+              { label: "Create",     value: "Create",      active: "bg-slate-500 text-white border-slate-500",   idle: "bg-white text-slate-600 border-slate-300 hover:bg-slate-50" },
+              { label: "Hold",       value: "Hold",        active: "bg-orange-500 text-white border-orange-500", idle: "bg-white text-orange-600 border-orange-300 hover:bg-orange-50" },
+              { label: "Success",    value: "Success",     active: "bg-green-600 text-white border-green-600",   idle: "bg-white text-green-600 border-green-300 hover:bg-green-50" },
+              { label: "Ongoing",    value: "Ongoing",     active: "bg-teal-600 text-white border-teal-600",     idle: "bg-white text-teal-600 border-teal-300 hover:bg-teal-50" },
+              { label: "Decline",    value: "Decline",     active: "bg-rose-600 text-white border-rose-600",     idle: "bg-white text-rose-600 border-rose-300 hover:bg-rose-50" },
+              { label: "Yearly",     value: "_YEARLY",     active: "bg-indigo-600 text-white border-indigo-600", idle: "bg-white text-indigo-600 border-indigo-300 hover:bg-indigo-50" },
+              { label: "Budgetary",  value: "_BUDGETARY",  active: "bg-cyan-600 text-white border-cyan-600",     idle: "bg-white text-cyan-600 border-cyan-300 hover:bg-cyan-50" },
+              { label: "⭐ Starred", value: "_STARRED",   active: "bg-yellow-500 text-white border-yellow-500", idle: "bg-white text-yellow-600 border-yellow-300 hover:bg-yellow-50" },
             ] as { label: string; value: string | null; active: string; idle: string }[]).map(btn => {
               const isActive = c1StatusFilter === btn.value;
-              const count = btn.value === null ? projects.length : projects.filter(p => p.status === btn.value).length;
+              const count = btn.value === null
+                ? projects.length
+                : btn.value === "_YEARLY"    ? projects.filter(p => p.typeProject === "Yearly").length
+                : btn.value === "_BUDGETARY" ? projects.filter(p => p.typeBidding === "Budgetary").length
+                : btn.value === "_STARRED"   ? projects.filter(p => p.starred).length
+                : projects.filter(p => p.status === btn.value).length;
               return (
                 <button
                   key={btn.label}
@@ -1003,7 +1176,12 @@ export default function CMGBiddingApp() {
             })}
             {c1StatusFilter && (
               <span className="ml-auto text-xs text-gray-400">
-                Showing <strong>{projects.filter(p => p.status === c1StatusFilter).length}</strong> of {projects.length} projects
+                Showing <strong>{
+                  c1StatusFilter === "_YEARLY"    ? projects.filter(p => p.typeProject === "Yearly").length
+                  : c1StatusFilter === "_BUDGETARY" ? projects.filter(p => p.typeBidding === "Budgetary").length
+                  : c1StatusFilter === "_STARRED"   ? projects.filter(p => p.starred).length
+                  : projects.filter(p => p.status === c1StatusFilter).length
+                }</strong> of {projects.length} projects
               </span>
             )}
           </div>
@@ -1024,7 +1202,13 @@ export default function CMGBiddingApp() {
                 </tr>
               </thead>
               <tbody>
-                {(c1StatusFilter ? projects.filter(p => p.status === c1StatusFilter) : projects).map((p, idx) => {
+                {(c1StatusFilter === null
+                  ? projects
+                  : c1StatusFilter === "_YEARLY"    ? projects.filter(p => p.typeProject === "Yearly")
+                  : c1StatusFilter === "_BUDGETARY" ? projects.filter(p => p.typeBidding === "Budgetary")
+                  : c1StatusFilter === "_STARRED"   ? projects.filter(p => p.starred)
+                  : projects.filter(p => p.status === c1StatusFilter)
+                ).map((p, idx) => {
                   const statusColors: Record<string, string> = {
                     Success: "bg-green-100 text-green-700",
                     Submitted: "bg-blue-100 text-blue-700",
@@ -1038,7 +1222,7 @@ export default function CMGBiddingApp() {
                   };
                   const badge = statusColors[p.status] || "bg-gray-100 text-gray-500";
                   return (
-                    <tr key={p.id} className={`border-b last:border-0 hover:bg-blue-50 transition-colors ${idx % 2 === 0 ? "bg-white" : "bg-gray-50/40"}`}>
+                    <tr key={p.id} onDoubleClick={() => { setProjectFormData(p); setIsProjectModalOpen(true); }} className={`border-b last:border-0 hover:bg-blue-50 transition-colors cursor-pointer select-none ${idx % 2 === 0 ? "bg-white" : "bg-gray-50/40"}`}>
                       <td className="px-3 py-2.5 text-gray-400 text-xs">{idx + 1}</td>
                       <td className="px-3 py-2.5 font-semibold text-blue-600 whitespace-nowrap">{p.id}</td>
                       <td className="px-4 py-2.5 text-gray-800">{p.name}</td>
@@ -1350,117 +1534,358 @@ export default function CMGBiddingApp() {
     );
   };
 
-  return (
-    <div className="flex h-screen bg-gray-100 font-sans">
-      {/* SIDEBAR */}
-      <div className="w-64 bg-slate-900 text-white flex flex-col">
-        <div className="p-6 border-b border-slate-800">
-          <h1 className="text-2xl font-black text-blue-400">
-            CMG<span className="text-white">BID</span>
-          </h1>
-          <p className="text-xs text-slate-400 mt-1">Multi-Project Tracker</p>
-        </div>
-        <nav className="flex-1 p-4 space-y-2">
-          <button
-            onClick={() => setActiveTab("projects")}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition ${activeTab === "projects"
-              ? "bg-blue-600 text-white"
-              : "text-slate-300 hover:bg-slate-800"
-              }`}
-          >
-            <Briefcase size={18} /> Part A: Projects
-          </button>
-          <button
-            onClick={() => setActiveTab("clients")}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition ${activeTab === "clients"
-              ? "bg-blue-600 text-white"
-              : "text-slate-300 hover:bg-slate-800"
-              }`}
-          >
-            <Users size={18} /> Part B: Clients
-          </button>
-          <button
-            onClick={() => setActiveTab("reports")}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition ${activeTab === "reports"
-              ? "bg-blue-600 text-white"
-              : "text-slate-300 hover:bg-slate-800"
-              }`}
-          >
-            <BarChart3 size={18} /> Part C: Reports
-          </button>
-          <button
-            onClick={() => setActiveTab("analysis")}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition ${activeTab === "analysis"
-              ? "bg-blue-600 text-white"
-              : "text-slate-300 hover:bg-slate-800"
-              }`}
-          >
-            <PieChart size={18} /> Part D: Analysis
-          </button>
-          <button
-            onClick={() => setActiveTab("timeline")}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition ${activeTab === "timeline"
-              ? "bg-blue-600 text-white"
-              : "text-slate-300 hover:bg-slate-800"
-              }`}
-          >
-            <BarChart3 size={18} /> Part E: Timeline
-          </button>
-        </nav>
-        <div className="p-4 bg-slate-800 m-4 rounded-lg">
-          <p className="text-xs text-slate-400 mb-2 uppercase font-bold tracking-wider">
-            Current User Role
-          </p>
-          <select
-            className="w-full bg-slate-900 text-sm border border-slate-700 rounded p-2 text-white focus:outline-none focus:border-blue-500"
-            value={currentRole.id}
-            onChange={(e) =>
-              setCurrentRole(roles.find((r) => r.id === e.target.value)!)
-            }
-          >
-            {roles.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.id} - {r.name}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
+  // --- STARRED SUMMARY VIEW ---
+  const StarredSummaryView = () => {
+    const starred = projects.filter(p => p.starred);
+    const totalValue = starred.reduce((s, p) => s + (p.biddingValue || 0), 0);
+    const successCount = starred.filter(p => p.status === "Success").length;
+    const inProgressCount = starred.filter(p => ["Submitted", "Negotiate", "FinalPrice", "Ongoing"].includes(p.status)).length;
 
-      {/* MAIN CONTENT */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {/* HEADER */}
-        <header className="bg-white border-b border-gray-200 h-16 flex items-center justify-between px-8">
-          <h2 className="text-lg font-medium text-gray-700 capitalize">
-            {activeTab === "projects" && "Project Bidding Management"}
-            {activeTab === "clients" && "Client Directory"}
-            {activeTab === "reports" && "Part C: Bidding Status Reports"}
-            {activeTab === "analysis" && "Part D: Management Dashboard & Analysis"}
-            {activeTab === "timeline" && "Part E: Bidding Timeline"}
+    const statusColors: Record<string, string> = {
+      Success: "bg-green-100 text-green-700",
+      Submitted: "bg-blue-100 text-blue-700",
+      Not_Success: "bg-red-100 text-red-700",
+      Negotiate: "bg-yellow-100 text-yellow-700",
+      FinalPrice: "bg-purple-100 text-purple-700",
+      Hold: "bg-orange-100 text-orange-700",
+      Cancel: "bg-gray-100 text-gray-500",
+      Create: "bg-slate-100 text-slate-600",
+      Ongoing: "bg-teal-100 text-teal-700",
+      Decline: "bg-rose-100 text-rose-700",
+      Other: "bg-gray-100 text-gray-500",
+    };
+
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+            <Star size={22} className="fill-yellow-400 text-yellow-400" />
+            Starred Projects Summary
           </h2>
-          <div className="flex items-center gap-4">
-            <span className="text-sm font-medium px-3 py-1 bg-blue-50 text-blue-700 rounded-full">
-              Logged in as: {currentRole.name}
-            </span>
+          <span className="text-sm text-slate-500">{starred.length} โปรเจคที่ติดดาว</span>
+        </div>
+
+        {starred.length === 0 ? (
+          <div className="bg-white rounded-xl border border-slate-200 p-16 text-center">
+            <Star size={40} className="mx-auto text-slate-200 mb-3" />
+            <p className="text-slate-400 font-medium">ยังไม่มีโปรเจคที่ติดดาว</p>
+            <p className="text-slate-300 text-sm mt-1">กดไอคอน ⭐ ในหน้า Projects เพื่อติดดาวโปรเจคที่สนใจ</p>
           </div>
+        ) : (
+          <>
+            {/* KPI Cards */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Total Starred</p>
+                <p className="text-3xl font-black text-slate-800">{starred.length}</p>
+                <p className="text-xs text-slate-400 mt-1">โปรเจค</p>
+              </div>
+              <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Total Bidding Value</p>
+                <p className="text-xl font-black text-blue-600 leading-tight">{formatCurrency(totalValue)}</p>
+                <p className="text-xs text-slate-400 mt-1">มูลค่ารวม</p>
+              </div>
+              <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Success</p>
+                <p className="text-3xl font-black text-green-600">{successCount}</p>
+                <p className="text-xs text-slate-400 mt-1">
+                  {starred.length > 0 ? Math.round((successCount / starred.length) * 100) : 0}% win rate
+                </p>
+              </div>
+              <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">In Progress</p>
+                <p className="text-3xl font-black text-yellow-500">{inProgressCount}</p>
+                <p className="text-xs text-slate-400 mt-1">กำลังดำเนินการ</p>
+              </div>
+            </div>
+
+            {/* Table */}
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="px-5 py-3 border-b border-slate-100 bg-yellow-50 flex items-center gap-2">
+                <Star size={15} className="fill-yellow-400 text-yellow-400" />
+                <span className="text-sm font-semibold text-yellow-800">Starred Projects</span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm text-left">
+                  <thead>
+                    <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wide border-b border-slate-200">
+                      <th className="px-4 py-3 font-semibold">#</th>
+                      <th className="px-4 py-3 font-semibold">Folder No.</th>
+                      <th className="px-4 py-3 font-semibold min-w-[200px]">Project Name</th>
+                      <th className="px-4 py-3 font-semibold">Customer</th>
+                      <th className="px-4 py-3 font-semibold">Type</th>
+                      <th className="px-4 py-3 font-semibold text-center">Status</th>
+                      {currentRole.canViewFinancials && (
+                        <th className="px-4 py-3 font-semibold text-right whitespace-nowrap">Bidding Value</th>
+                      )}
+                      <th className="px-4 py-3 font-semibold text-center whitespace-nowrap">Submit File</th>
+                      <th className="px-4 py-3 font-semibold text-center">Unstar</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {starred.map((p, idx) => (
+                      <tr key={p.id} className={`border-b border-slate-100 last:border-0 hover:bg-yellow-50/40 transition-colors ${idx % 2 === 0 ? "bg-white" : "bg-slate-50/30"}`}>
+                        <td className="px-4 py-3 text-slate-400 text-xs">{idx + 1}</td>
+                        <td className="px-4 py-3 font-semibold text-blue-600 whitespace-nowrap">{p.folderNo}</td>
+                        <td className="px-4 py-3 text-slate-800 font-medium">{p.name}</td>
+                        <td className="px-4 py-3 text-slate-500 whitespace-nowrap">{p.customerName || "—"}</td>
+                        <td className="px-4 py-3 text-slate-500 whitespace-nowrap">{p.typeProject}</td>
+                        <td className="px-4 py-3 text-center">
+                          <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap ${statusColors[p.status] || "bg-gray-100 text-gray-500"}`}>
+                            {p.status}
+                          </span>
+                        </td>
+                        {currentRole.canViewFinancials && (
+                          <td className="px-4 py-3 text-right font-medium text-slate-800 whitespace-nowrap">
+                            {formatCurrency(p.biddingValue)}
+                          </td>
+                        )}
+                        <td className="px-4 py-3 text-center">
+                          {p.submitPriceFile ? (
+                            <a href={p.submitPriceFile} target="_blank" rel="noreferrer"
+                              className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline">
+                              <FileText size={13} /> เปิดไฟล์
+                            </a>
+                          ) : (
+                            <span className="text-slate-300 text-xs">—</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <button
+                            onClick={() => toggleStar(p)}
+                            title="ยกเลิกติดดาว"
+                            className="transition-transform hover:scale-125"
+                          >
+                            <Star size={16} className="fill-yellow-400 text-yellow-400" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    );
+  };
+
+  const navItems = [
+    { id: "projects", label: "Projects",      part: "A", icon: <Briefcase size={20} /> },
+    { id: "clients",  label: "Clients",       part: "B", icon: <Users     size={20} /> },
+    { id: "reports",  label: "Reports",       part: "C", icon: <FileText  size={20} /> },
+    { id: "analysis", label: "Analysis",      part: "D", icon: <PieChart  size={20} /> },
+    { id: "timeline", label: "Timeline",      part: "E", icon: <BarChart3 size={20} /> },
+    { id: "starred",  label: "Starred",       part: "★", icon: <Star     size={20} /> },
+  ];
+
+  const pageTitles: Record<string, string> = {
+    projects:    "Project Bidding Management",
+    clients:     "Client Directory",
+    reports:     "Bidding Status Reports",
+    analysis:    "Management Dashboard & Analysis",
+    timeline:    "Bidding Timeline",
+    starred:         "⭐ Starred Projects Summary",
+    usermanagement: "จัดการผู้ใช้งาน",
+  };
+
+  const handleNavClick = (id: string) => {
+    setActiveTab(id);
+    setSidebarOpen(false);
+  };
+
+  // ── Sidebar profile initials ──
+  const initials = userProfile
+    ? `${userProfile.firstName?.[0] ?? ""}${userProfile.lastName?.[0] ?? ""}`.toUpperCase()
+    : "?";
+
+  return (
+    <div className="flex h-screen bg-slate-50 font-sans overflow-hidden">
+
+      {/* ── MOBILE BACKDROP ── */}
+      {sidebarOpen && (
+        <div className="fixed inset-0 bg-black/50 z-20 lg:hidden" onClick={() => setSidebarOpen(false)} />
+      )}
+
+      {/* ── SIDEBAR ── */}
+      <aside
+        className={`
+          fixed lg:relative inset-y-0 left-0 z-30 flex flex-col
+          bg-gradient-to-b from-slate-900 to-slate-800 text-white
+          transition-all duration-300 ease-in-out shrink-0
+          ${sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}
+          ${sidebarCollapsed ? "lg:w-[72px]" : "lg:w-64"}
+          w-64
+        `}
+      >
+        {/* ── Profile card (top of sidebar) ── */}
+        <div className={`shrink-0 border-b border-slate-700/60 ${
+          sidebarCollapsed ? "p-2 flex flex-col items-center gap-1" : "p-4"
+        }`}>
+          {sidebarCollapsed ? (
+            <>
+              {userProfile?.photoURL ? (
+                <img src={userProfile.photoURL} alt="" className="w-9 h-9 rounded-full object-cover border-2 border-slate-600" />
+              ) : (
+                <div className="w-9 h-9 rounded-full bg-blue-600 flex items-center justify-center text-xs font-bold">{initials}</div>
+              )}
+            </>
+          ) : (
+            <div className="flex items-center gap-3">
+              {userProfile?.photoURL ? (
+                <img src={userProfile.photoURL} alt="" className="w-11 h-11 rounded-full object-cover border-2 border-slate-600 shrink-0" />
+              ) : (
+                <div className="w-11 h-11 rounded-full bg-blue-600 flex items-center justify-center text-sm font-bold shrink-0">{initials}</div>
+              )}
+              <div className="min-w-0">
+                <p className="text-sm font-bold text-white truncate">
+                  {userProfile ? `${userProfile.firstName} ${userProfile.lastName}` : ""}
+                </p>
+                <div className="flex flex-wrap gap-1 mt-0.5">
+                  {userProfile?.role?.map(r => (
+                    <span key={r} className="text-[9px] px-1.5 py-0.5 bg-blue-600/40 text-blue-200 rounded-full font-semibold">{r}</span>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ── Nav items ── */}
+        <nav className="flex-1 py-3 px-2 space-y-1 overflow-y-auto">
+          {navItems.map((item) => {
+            const active = activeTab === item.id;
+            return (
+              <button
+                key={item.id}
+                onClick={() => handleNavClick(item.id)}
+                title={sidebarCollapsed ? `Part ${item.part}: ${item.label}` : undefined}
+                className={`
+                  w-full flex items-center rounded-xl text-sm font-medium transition-all duration-150 group
+                  ${sidebarCollapsed ? "justify-center px-0 py-3" : "gap-3 px-3 py-2.5"}
+                  ${active
+                    ? "bg-blue-600 text-white shadow-lg shadow-blue-900/30"
+                    : "text-slate-400 hover:bg-slate-700/60 hover:text-white"
+                  }
+                `}
+              >
+                <span className={`shrink-0 transition-transform ${active ? "scale-110" : "group-hover:scale-105"}`}>
+                  {item.icon}
+                </span>
+                {!sidebarCollapsed && (
+                  <span className="flex-1 text-left leading-none">
+                    <span className="text-[10px] font-bold opacity-60 block mb-0.5">PART {item.part}</span>
+                    {item.label}
+                  </span>
+                )}
+                {!sidebarCollapsed && active && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-300 shrink-0" />
+                )}
+              </button>
+            );
+          })}
+        </nav>
+
+        {/* ── User Management (MasterAdmin only, bottom of nav) ── */}
+        {isMasterAdmin && (
+          <div className="px-2 pb-2">
+            <button
+              onClick={() => handleNavClick("usermanagement")}
+              title={sidebarCollapsed ? "จัดการผู้ใช้งาน" : undefined}
+              className={`
+                w-full flex items-center rounded-xl text-sm font-medium transition-all duration-150 group relative
+                ${sidebarCollapsed ? "justify-center px-0 py-3" : "gap-3 px-3 py-2.5"}
+                ${activeTab === "usermanagement"
+                  ? "bg-violet-600 text-white shadow-lg shadow-violet-900/30"
+                  : "text-slate-400 hover:bg-slate-700/60 hover:text-white"
+                }
+              `}
+            >
+              <span className="shrink-0 relative">
+                <Users size={20} />
+                {pendingCount > 0 && (
+                  <span className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center">
+                    {pendingCount > 9 ? "9+" : pendingCount}
+                  </span>
+                )}
+              </span>
+              {!sidebarCollapsed && (
+                <span className="flex-1 text-left leading-none flex items-center gap-2">
+                  <span>จัดการผู้ใช้</span>
+                  {pendingCount > 0 && (
+                    <span className="px-1.5 py-0.5 bg-red-500 text-white text-[10px] font-bold rounded-full">
+                      {pendingCount}
+                    </span>
+                  )}
+                </span>
+              )}
+            </button>
+          </div>
+        )}
+
+        {/* ── Collapse toggle (desktop only) ── */}
+        <button
+          onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+          className="hidden lg:flex items-center justify-center h-10 border-t border-slate-700/60 text-slate-500 hover:text-white hover:bg-slate-700/40 transition shrink-0"
+          title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+        >
+          <svg
+            className={`w-4 h-4 transition-transform duration-300 ${sidebarCollapsed ? "rotate-180" : ""}`}
+            fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+          </svg>
+        </button>
+      </aside>
+
+      {/* ── MAIN AREA ── */}
+      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+
+        {/* HEADER */}
+        <header className="shrink-0 h-16 bg-white border-b border-slate-200 flex items-center gap-3 px-4 lg:px-6 shadow-sm">
+          {/* Hamburger (mobile) */}
+          <button
+            onClick={() => setSidebarOpen(true)}
+            className="lg:hidden flex items-center justify-center w-9 h-9 rounded-lg text-slate-500 hover:bg-slate-100 transition"
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          </button>
+
+          <div className="flex-1 min-w-0">
+            <h1 className="text-base font-semibold text-slate-800 truncate">
+              {pageTitles[activeTab]}
+            </h1>
+          </div>
+
+          {/* Profile dropdown (top-right) */}
+          <ProfileDropdown />
         </header>
 
         {/* CONTENT AREA */}
-        <main className="flex-1 overflow-auto p-8">
+        <main className="flex-1 overflow-auto p-4 lg:p-8">
           {loading ? (
             <div className="flex items-center justify-center h-full">
               <div className="text-center">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-                <p className="text-gray-500 text-lg">กำลังโหลดข้อมูลจาก Firestore...</p>
+                <div className="relative w-16 h-16 mx-auto mb-5">
+                  <div className="absolute inset-0 rounded-full border-4 border-blue-100" />
+                  <div className="absolute inset-0 rounded-full border-4 border-blue-600 border-t-transparent animate-spin" />
+                </div>
+                <p className="text-slate-500 font-medium">กำลังโหลดข้อมูลจาก Firestore...</p>
+                <p className="text-slate-400 text-sm mt-1">CMG Bidding Tracker</p>
               </div>
             </div>
           ) : (
             <>
-              {activeTab === "projects" && <ProjectView />}
-              {activeTab === "clients" && <ClientView />}
-              {activeTab === "reports" && <ReportAnalysisView />}
-              {activeTab === "analysis" && <AnalysisView />}
-              {activeTab === "timeline" && <TimelineView />}
+              {activeTab === "projects"       && <ProjectView />}
+              {activeTab === "clients"        && <ClientView />}
+              {activeTab === "reports"        && <ReportAnalysisView />}
+              {activeTab === "analysis"       && <AnalysisView />}
+              {activeTab === "timeline"       && <TimelineView />}
+              {activeTab === "starred"         && <StarredSummaryView />}
+              {activeTab === "usermanagement" && isMasterAdmin && <UserManagementView />}
             </>
           )}
         </main>
@@ -1493,6 +1918,14 @@ export default function CMGBiddingApp() {
                     <label className="block text-xs font-medium mb-1 text-gray-600">Project Name *</label>
                     <input type="text" className="w-full border border-gray-300 rounded-lg p-2 text-gray-800 text-sm" value={projectFormData.name} onChange={e => setProjectFormData({ ...projectFormData, name: e.target.value })} />
                   </div>
+                  <div className="col-span-2">
+                    <FileUploadField
+                      label="Project Overview File"
+                      currentUrl={projectFormData.projectOverviewFile}
+                      storagePath={`projects/${projectFormData.id || "new"}/overview`}
+                      onUpload={url => setProjectFormData({ ...projectFormData, projectOverviewFile: url })}
+                    />
+                  </div>
                   <div>
                     <label className="block text-xs font-medium mb-1 text-gray-600">RFQ No.</label>
                     <input type="text" className="w-full border border-gray-300 rounded-lg p-2 text-gray-800 text-sm" value={projectFormData.rfqNo} onChange={e => setProjectFormData({ ...projectFormData, rfqNo: e.target.value })} />
@@ -1500,6 +1933,14 @@ export default function CMGBiddingApp() {
                   <div>
                     <label className="block text-xs font-medium mb-1 text-gray-600">RFQ Date</label>
                     <input type="date" className="w-full border border-gray-300 rounded-lg p-2 text-gray-800 text-sm" value={projectFormData.rfqDate} onChange={e => setProjectFormData({ ...projectFormData, rfqDate: e.target.value })} />
+                  </div>
+                  <div className="col-span-2">
+                    <FileUploadField
+                      label="RFQ File"
+                      currentUrl={projectFormData.rfqFile}
+                      storagePath={`projects/${projectFormData.id || "new"}/rfq`}
+                      onUpload={url => setProjectFormData({ ...projectFormData, rfqFile: url })}
+                    />
                   </div>
                 </div>
               </div>
@@ -1623,6 +2064,26 @@ export default function CMGBiddingApp() {
                     <label className="block text-xs font-medium mb-1 text-gray-600">Att Bid Bond (Reference/File)</label>
                     <input type="text" className="w-full border border-gray-300 rounded-lg p-2 text-gray-800 text-sm" value={projectFormData.attBidBond} onChange={e => setProjectFormData({ ...projectFormData, attBidBond: e.target.value })} placeholder="File path or reference number..." />
                   </div>
+                  <div className="col-span-2">
+                    <label className="block text-xs font-medium mb-1 text-gray-600 flex items-center gap-1">
+                      <FileText size={12} className="text-blue-500" /> Submit Price File (URL / Path)
+                    </label>
+                    <input type="text" className="w-full border border-gray-300 rounded-lg p-2 text-gray-800 text-sm" value={projectFormData.submitPriceFile} onChange={e => setProjectFormData({ ...projectFormData, submitPriceFile: e.target.value })} placeholder="https://... or \\\\server\\share\\filename.pdf" />
+                    {projectFormData.submitPriceFile && (
+                      <a href={projectFormData.submitPriceFile} target="_blank" rel="noreferrer" className="text-xs text-blue-600 hover:underline mt-1 inline-flex items-center gap-1">
+                        <Eye size={11} /> เปิดไฟล์
+                      </a>
+                    )}
+                  </div>
+                  <div className="col-span-2">
+                    <FileUploadField
+                      label="Submit Price File (Upload)"
+                      currentUrl={projectFormData.submitPriceFile}
+                      storagePath={`projects/${projectFormData.id || "new"}/submitprice`}
+                      onUpload={url => setProjectFormData({ ...projectFormData, submitPriceFile: url })}
+                      accept=".pdf,.xlsx,.xls,.doc,.docx,image/*"
+                    />
+                  </div>
                 </div>
               </div>
 
@@ -1633,7 +2094,7 @@ export default function CMGBiddingApp() {
                   <div className="col-span-2">
                     <label className="block text-xs font-medium mb-1 text-gray-600">Bidding Status</label>
                     <select className="w-full border border-gray-300 rounded-lg p-2 text-gray-800 bg-white text-sm" value={projectFormData.status} onChange={e => setProjectFormData({ ...projectFormData, status: e.target.value })}>
-                      {["Create", "Submitted", "Negotiate", "Hold", "Cancel", "FinalPrice", "Not_Success", "Success", "Other"].map(v => <option key={v} value={v}>{v}</option>)}
+                      {["Create", "Submitted", "Negotiate", "Hold", "Cancel", "FinalPrice", "Not_Success", "Success", "Ongoing", "Decline", "Other"].map(v => <option key={v} value={v}>{v}</option>)}
                     </select>
                   </div>
                   <div className="col-span-2">

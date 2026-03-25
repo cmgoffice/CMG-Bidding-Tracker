@@ -1,15 +1,20 @@
 import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
+import { getAuth } from "firebase/auth";
+import { getStorage } from "firebase/storage";
 
 const firebaseConfig = {
-    apiKey: "AIzaSyAqwokWsxiXPy4F590HLLx9r-DtTWbuXxU",
-    authDomain: "cmg-bidding-tracker.firebaseapp.com",
-    projectId: "cmg-bidding-tracker",
-    storageBucket: "cmg-bidding-tracker.firebasestorage.app",
-    messagingSenderId: "496302719333",
-    appId: "1:496302719333:web:c8702a137c8e8e4d6be18c",
-    measurementId: "G-9SYDTGL5L8",
+  apiKey:            import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain:        import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId:         import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket:     import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId:             import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
+export const APP_NAME = import.meta.env.VITE_APP_NAME as string ?? "cmgbid";
+
 const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app);
+export const db      = getFirestore(app);
+export const auth    = getAuth(app);
+export const storage = getStorage(app);
