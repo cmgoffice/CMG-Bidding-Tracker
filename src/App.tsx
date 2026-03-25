@@ -1488,7 +1488,7 @@ function CMGBiddingApp() {
                 {filtered.map((p, idx) => {
                   const barStyle = getBarStyle(p);
                   return (
-                    <div key={p.id} className={`flex border-b border-gray-100 last:border-0 hover:bg-indigo-50/30 transition-colors ${idx % 2 === 0 ? "bg-white" : "bg-gray-50/30"}`} style={{ minHeight: "44px", alignItems: "stretch" }}>
+                    <div key={p.id} onDoubleClick={() => { setProjectFormData(p); setIsProjectModalOpen(true); }} className={`flex border-b border-gray-100 last:border-0 hover:bg-indigo-50/30 transition-colors cursor-pointer select-none ${idx % 2 === 0 ? "bg-white" : "bg-gray-50/30"}`} style={{ minHeight: "44px", alignItems: "stretch" }}>
                       {/* Left info */}
                       <div className="shrink-0 flex items-center" style={{ width: "500px" }}>
                         <div className="px-3 py-2 text-xs font-semibold text-indigo-600 border-r border-gray-100 self-stretch flex items-center" style={{ width: "85px" }}>
