@@ -1374,7 +1374,12 @@ function CMGBiddingApp() {
       Other: "bg-gray-100 text-gray-500",
     };
 
-    const filtered = tlFilter ? projects.filter(p => p.status === tlFilter) : projects;
+    const filtered = tlFilter === null
+      ? projects
+      : tlFilter === "_YEARLY"    ? projects.filter(p => p.typeProject === "Yearly")
+      : tlFilter === "_BUDGETARY" ? projects.filter(p => p.typeBidding === "Budgetary")
+      : tlFilter === "_STARRED"   ? projects.filter(p => p.starred)
+      : projects.filter(p => p.status === tlFilter);
     const withDates = projects.filter(p => p.projectStart && p.projectFinish);
 
     // Compute timeline range
@@ -1403,13 +1408,18 @@ function CMGBiddingApp() {
     };
 
     const filterBtns = [
-      { label: "All", value: null, active: "bg-gray-700 text-white border-gray-700", idle: "bg-white text-gray-600 border-gray-300 hover:bg-gray-50" },
-      { label: "Submitted", value: "Submitted", active: "bg-blue-600 text-white border-blue-600", idle: "bg-white text-blue-600 border-blue-300 hover:bg-blue-50" },
+      { label: "All",         value: null,         active: "bg-gray-700 text-white border-gray-700",     idle: "bg-white text-gray-600 border-gray-300 hover:bg-gray-50" },
+      { label: "Submitted",   value: "Submitted",  active: "bg-blue-600 text-white border-blue-600",     idle: "bg-white text-blue-600 border-blue-300 hover:bg-blue-50" },
       { label: "Final Price", value: "FinalPrice", active: "bg-purple-600 text-white border-purple-600", idle: "bg-white text-purple-600 border-purple-300 hover:bg-purple-50" },
-      { label: "Negotiate", value: "Negotiate", active: "bg-yellow-500 text-white border-yellow-500", idle: "bg-white text-yellow-600 border-yellow-300 hover:bg-yellow-50" },
-      { label: "Create", value: "Create", active: "bg-slate-500 text-white border-slate-500", idle: "bg-white text-slate-600 border-slate-300 hover:bg-slate-50" },
-      { label: "Hold", value: "Hold", active: "bg-orange-500 text-white border-orange-500", idle: "bg-white text-orange-600 border-orange-300 hover:bg-orange-50" },
-      { label: "Success", value: "Success", active: "bg-green-600 text-white border-green-600", idle: "bg-white text-green-600 border-green-300 hover:bg-green-50" },
+      { label: "Negotiate",   value: "Negotiate",  active: "bg-yellow-500 text-white border-yellow-500", idle: "bg-white text-yellow-600 border-yellow-300 hover:bg-yellow-50" },
+      { label: "Create",      value: "Create",     active: "bg-slate-500 text-white border-slate-500",   idle: "bg-white text-slate-600 border-slate-300 hover:bg-slate-50" },
+      { label: "Hold",        value: "Hold",       active: "bg-orange-500 text-white border-orange-500", idle: "bg-white text-orange-600 border-orange-300 hover:bg-orange-50" },
+      { label: "Success",     value: "Success",    active: "bg-green-600 text-white border-green-600",   idle: "bg-white text-green-600 border-green-300 hover:bg-green-50" },
+      { label: "Ongoing",     value: "Ongoing",    active: "bg-teal-600 text-white border-teal-600",     idle: "bg-white text-teal-600 border-teal-300 hover:bg-teal-50" },
+      { label: "Decline",     value: "Decline",    active: "bg-rose-600 text-white border-rose-600",     idle: "bg-white text-rose-600 border-rose-300 hover:bg-rose-50" },
+      { label: "Yearly",      value: "_YEARLY",    active: "bg-indigo-600 text-white border-indigo-600", idle: "bg-white text-indigo-600 border-indigo-300 hover:bg-indigo-50" },
+      { label: "Budgetary",   value: "_BUDGETARY", active: "bg-cyan-600 text-white border-cyan-600",     idle: "bg-white text-cyan-600 border-cyan-300 hover:bg-cyan-50" },
+      { label: "⭐ Starred",  value: "_STARRED",  active: "bg-yellow-500 text-white border-yellow-500", idle: "bg-white text-yellow-600 border-yellow-300 hover:bg-yellow-50" },
     ] as { label: string; value: string | null; active: string; idle: string }[];
 
     return (
@@ -1434,7 +1444,12 @@ function CMGBiddingApp() {
             <span className="text-xs font-semibold text-gray-500 mr-1 whitespace-nowrap">Filter:</span>
             {filterBtns.map(btn => {
               const isActive = tlFilter === btn.value;
-              const count = btn.value === null ? projects.length : projects.filter(p => p.status === btn.value).length;
+              const count = btn.value === null
+                ? projects.length
+                : btn.value === "_YEARLY"    ? projects.filter(p => p.typeProject === "Yearly").length
+                : btn.value === "_BUDGETARY" ? projects.filter(p => p.typeBidding === "Budgetary").length
+                : btn.value === "_STARRED"   ? projects.filter(p => p.starred).length
+                : projects.filter(p => p.status === btn.value).length;
               return (
                 <button key={btn.label} onClick={() => setTlFilter(btn.value)}
                   className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition flex items-center gap-1.5 ${isActive ? btn.active + " shadow" : btn.idle}`}>
