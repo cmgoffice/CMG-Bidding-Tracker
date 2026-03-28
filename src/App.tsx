@@ -12,7 +12,7 @@ import {
 } from "firebase/firestore";
 import { db, storage } from "./firebase";
 import { APP_NAME } from "./firebase";
-import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
+import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from "firebase/storage";
 import { useAuth } from "./contexts/AuthContext";
 import ProtectedRoute from "./components/ProtectedRoute";
 import ProfileDropdown from "./components/ProfileDropdown";
@@ -343,6 +343,7 @@ function CMGBiddingApp() {
   // Modals state
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
   const [projectFormData, setProjectFormData] = useState<typeof initialProjects[0]>(emptyProject);
+  const pendingProjectUploads = React.useRef<string[]>([]);
 
   const [isClientModalOpen, setIsClientModalOpen] = useState(false);
   const [clientFormData, setClientFormData] = useState<typeof initialClients[0]>(emptyClient);
@@ -435,6 +436,24 @@ function CMGBiddingApp() {
       currency: "THB",
     }).format(val || 0);
 
+  const cleanupPendingUploads = async (urls: string[]) => {
+    for (const url of urls) {
+      try {
+        const path = decodeURIComponent(url.split("/o/")[1]?.split("?")[0] ?? "");
+        if (path) await deleteObject(ref(storage, path));
+      } catch {
+        // ignore errors (file may not exist)
+      }
+    }
+  };
+
+  const handleCancelProjectModal = async () => {
+    const toDelete = pendingProjectUploads.current;
+    pendingProjectUploads.current = [];
+    await cleanupPendingUploads(toDelete);
+    setIsProjectModalOpen(false);
+  };
+
   const handleSaveProjectModal = async () => {
     const isNew = !projectFormData.id;
     const saveId = isNew
@@ -451,6 +470,7 @@ function CMGBiddingApp() {
     };
 
     await saveProject(payload);
+    pendingProjectUploads.current = [];
     setIsProjectModalOpen(false);
   };
 
@@ -735,7 +755,7 @@ function CMGBiddingApp() {
               </button>
 
               <button
-                onClick={() => { setProjectFormData(emptyProject); setIsProjectModalOpen(true); }}
+                onClick={() => { pendingProjectUploads.current = []; setProjectFormData(emptyProject); setIsProjectModalOpen(true); }}
                 className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-700"
               >
                 <Plus size={18} /> New Project
@@ -878,7 +898,7 @@ function CMGBiddingApp() {
                       {currentRole.canEdit && (
                         <>
                           <button
-                            onClick={() => { setProjectFormData(proj); setIsProjectModalOpen(true); }}
+                            onClick={() => { pendingProjectUploads.current = []; setProjectFormData(proj); setIsProjectModalOpen(true); }}
                             className="text-gray-400 hover:text-green-600"
                             title="Edit Project"
                           >
@@ -1222,7 +1242,7 @@ function CMGBiddingApp() {
                   };
                   const badge = statusColors[p.status] || "bg-gray-100 text-gray-500";
                   return (
-                    <tr key={p.id} onDoubleClick={() => { setProjectFormData(p); setIsProjectModalOpen(true); }} className={`border-b last:border-0 hover:bg-blue-50 transition-colors cursor-pointer select-none ${idx % 2 === 0 ? "bg-white" : "bg-gray-50/40"}`}>
+                    <tr key={p.id} onDoubleClick={() => { pendingProjectUploads.current = []; setProjectFormData(p); setIsProjectModalOpen(true); }} className={`border-b last:border-0 hover:bg-blue-50 transition-colors cursor-pointer select-none ${idx % 2 === 0 ? "bg-white" : "bg-gray-50/40"}`}>
                       <td className="px-3 py-2.5 text-gray-400 text-xs">{idx + 1}</td>
                       <td className="px-3 py-2.5 font-semibold text-blue-600 whitespace-nowrap">{p.id}</td>
                       <td className="px-4 py-2.5 text-gray-800">{p.name}</td>
@@ -1488,7 +1508,7 @@ function CMGBiddingApp() {
                 {filtered.map((p, idx) => {
                   const barStyle = getBarStyle(p);
                   return (
-                    <div key={p.id} onDoubleClick={() => { setProjectFormData(p); setIsProjectModalOpen(true); }} className={`flex border-b border-gray-100 last:border-0 hover:bg-indigo-50/30 transition-colors cursor-pointer select-none ${idx % 2 === 0 ? "bg-white" : "bg-gray-50/30"}`} style={{ minHeight: "44px", alignItems: "stretch" }}>
+                    <div key={p.id} onDoubleClick={() => { pendingProjectUploads.current = []; setProjectFormData(p); setIsProjectModalOpen(true); }} className={`flex border-b border-gray-100 last:border-0 hover:bg-indigo-50/30 transition-colors cursor-pointer select-none ${idx % 2 === 0 ? "bg-white" : "bg-gray-50/30"}`} style={{ minHeight: "44px", alignItems: "stretch" }}>
                       {/* Left info */}
                       <div className="shrink-0 flex items-center" style={{ width: "500px" }}>
                         <div className="px-3 py-2 text-xs font-semibold text-indigo-600 border-r border-gray-100 self-stretch flex items-center" style={{ width: "85px" }}>
@@ -1912,7 +1932,7 @@ function CMGBiddingApp() {
           <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] flex flex-col">
             <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-white rounded-t-xl shrink-0">
               <h3 className="text-xl font-bold text-gray-800">{projectFormData.id ? "Edit Project" : "New Project"}</h3>
-              <button onClick={() => setIsProjectModalOpen(false)} className="text-gray-400 hover:text-gray-600">
+              <button onClick={handleCancelProjectModal} className="text-gray-400 hover:text-gray-600">
                 <XCircle size={24} />
               </button>
             </div>
@@ -1938,7 +1958,7 @@ function CMGBiddingApp() {
                       label="Project Overview File"
                       currentUrl={projectFormData.projectOverviewFile}
                       storagePath={`projects/${projectFormData.id || "new"}/overview`}
-                      onUpload={url => setProjectFormData({ ...projectFormData, projectOverviewFile: url })}
+                      onUpload={url => { pendingProjectUploads.current = [...pendingProjectUploads.current, url]; setProjectFormData({ ...projectFormData, projectOverviewFile: url }); }}
                     />
                   </div>
                   <div>
@@ -1954,7 +1974,7 @@ function CMGBiddingApp() {
                       label="RFQ File"
                       currentUrl={projectFormData.rfqFile}
                       storagePath={`projects/${projectFormData.id || "new"}/rfq`}
-                      onUpload={url => setProjectFormData({ ...projectFormData, rfqFile: url })}
+                      onUpload={url => { pendingProjectUploads.current = [...pendingProjectUploads.current, url]; setProjectFormData({ ...projectFormData, rfqFile: url }); }}
                     />
                   </div>
                 </div>
@@ -2095,7 +2115,7 @@ function CMGBiddingApp() {
                       label="Submit Price File (Upload)"
                       currentUrl={projectFormData.submitPriceFile}
                       storagePath={`projects/${projectFormData.id || "new"}/submitprice`}
-                      onUpload={url => setProjectFormData({ ...projectFormData, submitPriceFile: url })}
+                      onUpload={url => { pendingProjectUploads.current = [...pendingProjectUploads.current, url]; setProjectFormData({ ...projectFormData, submitPriceFile: url }); }}
                       accept=".pdf,.xlsx,.xls,.doc,.docx,image/*"
                     />
                   </div>
@@ -2120,7 +2140,7 @@ function CMGBiddingApp() {
               </div>
             </div>
             <div className="p-5 border-t border-gray-100 flex justify-end gap-3 bg-gray-50 rounded-b-xl shrink-0">
-              <button onClick={() => setIsProjectModalOpen(false)} className="px-5 py-2.5 border border-gray-300 rounded-lg hover:bg-gray-100 font-medium text-gray-700 transition">Cancel</button>
+              <button onClick={handleCancelProjectModal} className="px-5 py-2.5 border border-gray-300 rounded-lg hover:bg-gray-100 font-medium text-gray-700 transition">Cancel</button>
               <button onClick={handleSaveProjectModal} className="px-5 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium shadow-sm transition">Save Project</button>
             </div>
           </div>
