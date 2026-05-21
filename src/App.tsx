@@ -1053,9 +1053,9 @@ function CMGBiddingApp() {
       {/* === TABLE VIEW === */}
       {clientViewMode === "table" && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="overflow-x-auto">
+          <div className="overflow-auto" style={{ maxHeight: "calc(100vh - 200px)" }}>
             <table className="w-full text-left border-collapse">
-              <thead>
+              <thead className="sticky top-0 z-10">
                 <tr className="bg-gray-50 text-gray-600 text-sm">
                   <th className="p-4 border-b">Client ID</th>
                   <th className="p-4 border-b">Client Name</th>
