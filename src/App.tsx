@@ -1206,9 +1206,9 @@ function CMGBiddingApp() {
               </span>
             )}
           </div>
-          <div className="overflow-x-auto">
+          <div className="overflow-auto" style={{ maxHeight: "calc(100vh - 300px)" }}>
             <table className="w-full text-left text-sm border-collapse">
-              <thead>
+              <thead className="sticky top-0 z-10">
                 <tr className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wide border-b">
                   <th className="px-3 py-3 font-semibold">#</th>
                   <th className="px-3 py-3 font-semibold whitespace-nowrap">Bidding ID</th>
@@ -1382,6 +1382,14 @@ function CMGBiddingApp() {
     const [tlFilter, setTlFilter] = React.useState<string | null>(null);
     const [tlReportDate, setTlReportDate] = React.useState<string>(new Date().toISOString().split("T")[0]);
     const [tlPaperSize, setTlPaperSize] = React.useState<"A4" | "A3">("A4");
+
+    const formatCurrencyCompact = (val: number) => {
+      if (!val) return "—";
+      if (val >= 1_000_000_000) return `฿${(val / 1_000_000_000).toFixed(2)}B`;
+      if (val >= 1_000_000) return `฿${(val / 1_000_000).toFixed(1)}M`;
+      if (val >= 1_000) return `฿${(val / 1_000).toFixed(0)}K`;
+      return `฿${val.toLocaleString()}`;
+    };
 
     const statusBarColors: Record<string, string> = {
       Success: "bg-green-500", Submitted: "bg-blue-500", Not_Success: "bg-red-500",
@@ -1576,16 +1584,16 @@ function CMGBiddingApp() {
           {filtered.length === 0 ? (
             <div className="py-16 text-center text-gray-400 italic">No projects match the filter.</div>
           ) : (
-            <div className="overflow-x-auto">
-              <div style={{ minWidth: "960px" }}>
+            <div className="overflow-auto" style={{ maxHeight: "calc(100vh - 260px)" }}>
+              <div style={{ minWidth: "1100px" }}>
                 {/* Header row */}
-                <div className="flex bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-500 uppercase tracking-wide sticky top-0 z-10">
-                  <div className="shrink-0 flex" style={{ width: "500px" }}>
-                    <div className="px-3 py-2.5 border-r border-gray-200 whitespace-nowrap" style={{ width: "85px" }}>Bidding ID</div>
-                    <div className="px-3 py-2.5 border-r border-gray-200" style={{ width: "165px" }}>Project Name</div>
-                    <div className="px-3 py-2.5 border-r border-gray-200 whitespace-nowrap" style={{ width: "70px" }}>Status</div>
-                    <div className="px-3 py-2.5 border-r border-gray-200 text-right whitespace-nowrap" style={{ width: "90px" }}>Value</div>
-                    <div className="px-3 py-2.5 border-r border-gray-200 text-center whitespace-nowrap" style={{ width: "90px" }}>Award Date</div>
+                <div className="flex bg-slate-100 border-b border-slate-300 text-[11px] font-bold text-slate-600 uppercase tracking-wider sticky top-0 z-10 shadow-sm">
+                  <div className="shrink-0 flex" style={{ width: "610px" }}>
+                    <div className="px-3 py-3 border-r border-slate-200 whitespace-nowrap" style={{ width: "95px" }}>Bidding ID</div>
+                    <div className="px-3 py-3 border-r border-slate-200" style={{ width: "205px" }}>Project Name</div>
+                    <div className="px-3 py-3 border-r border-slate-200 text-center whitespace-nowrap" style={{ width: "100px" }}>Status</div>
+                    <div className="px-3 py-3 border-r border-slate-200 text-right whitespace-nowrap" style={{ width: "110px" }}>Value (THB)</div>
+                    <div className="px-3 py-3 border-r border-slate-200 text-center whitespace-nowrap" style={{ width: "100px" }}>Award Date</div>
                   </div>
                   <div className="flex flex-1 relative">
                     {months.map((m, i) => (
@@ -1604,23 +1612,23 @@ function CMGBiddingApp() {
                 {filtered.map((p, idx) => {
                   const barStyle = getBarStyle(p);
                   return (
-                    <div key={p.id} onDoubleClick={() => { pendingProjectUploads.current = []; setProjectFormData(p); setIsProjectModalOpen(true); }} className={`flex border-b border-gray-100 last:border-0 hover:bg-indigo-50/30 transition-colors cursor-pointer select-none ${idx % 2 === 0 ? "bg-white" : "bg-gray-50/30"}`} style={{ minHeight: "44px", alignItems: "stretch" }}>
+                    <div key={p.id} onDoubleClick={() => { pendingProjectUploads.current = []; setProjectFormData(p); setIsProjectModalOpen(true); }} className={`flex border-b border-slate-100 last:border-0 hover:bg-indigo-50/50 transition-colors cursor-pointer select-none ${idx % 2 === 0 ? "bg-white" : "bg-slate-50/60"}`} style={{ minHeight: "50px", alignItems: "stretch" }}>
                       {/* Left info */}
-                      <div className="shrink-0 flex items-center" style={{ width: "500px" }}>
-                        <div className="px-3 py-2 text-xs font-semibold text-indigo-600 border-r border-gray-100 self-stretch flex items-center" style={{ width: "85px" }}>
-                          <span className="truncate">{p.id}</span>
+                      <div className="shrink-0 flex" style={{ width: "610px" }}>
+                        <div className="px-3 py-2 border-r border-slate-100 self-stretch flex items-center" style={{ width: "95px" }}>
+                          <span className="text-[11px] font-bold text-indigo-600 truncate block w-full">{p.id}</span>
                         </div>
-                        <div className="px-3 py-2 text-xs text-gray-800 border-r border-gray-100 self-stretch flex items-center" style={{ width: "165px" }}>
-                          <span className="line-clamp-2 leading-tight">{p.name}</span>
+                        <div className="px-3 py-2 border-r border-slate-100 self-stretch flex items-center" style={{ width: "205px" }}>
+                          <span className="text-[11px] font-medium text-slate-800 line-clamp-2 leading-snug">{p.name}</span>
                         </div>
-                        <div className="px-2 py-2 border-r border-gray-100 self-stretch flex items-center justify-center" style={{ width: "70px" }}>
-                          <span className={`inline-block px-1.5 py-0.5 rounded-full text-[9px] font-semibold whitespace-nowrap ${statusBadgeColors[p.status] || "bg-gray-100 text-gray-500"}`}>{p.status}</span>
+                        <div className="px-2 py-2 border-r border-slate-100 self-stretch flex items-center justify-center" style={{ width: "100px" }}>
+                          <span className={`inline-flex items-center justify-center px-2 py-0.5 rounded-full text-[10px] font-semibold whitespace-nowrap ${statusBadgeColors[p.status] || "bg-gray-100 text-gray-500"}`}>{p.status}</span>
                         </div>
-                        <div className="px-2 py-2 text-xs text-right text-gray-700 font-medium border-r border-gray-100 self-stretch flex items-center justify-end" style={{ width: "90px" }}>
-                          {formatCurrency(p.biddingValue)}
+                        <div className="px-3 py-2 border-r border-slate-100 self-stretch flex items-center justify-end" style={{ width: "110px" }}>
+                          <span className="text-[11px] font-bold text-slate-700 whitespace-nowrap tabular-nums">{formatCurrencyCompact(p.biddingValue)}</span>
                         </div>
-                        <div className="px-2 py-2 text-xs text-center text-gray-500 border-r border-gray-100 self-stretch flex items-center justify-center" style={{ width: "90px" }}>
-                          {p.awardDate || "—"}
+                        <div className="px-2 py-2 border-r border-slate-100 self-stretch flex items-center justify-center" style={{ width: "100px" }}>
+                          <span className="text-[10px] font-medium text-slate-500 whitespace-nowrap">{p.awardDate || "—"}</span>
                         </div>
                       </div>
                       {/* Gantt bar */}
@@ -1637,8 +1645,8 @@ function CMGBiddingApp() {
                         ))}
                         {barStyle ? (
                           <div
-                            className={`absolute top-1/2 -translate-y-1/2 rounded-lg ${statusBarColors[p.status] || "bg-gray-400"} opacity-80 hover:opacity-100 transition-all shadow-sm cursor-default`}
-                            style={{ left: barStyle.left, width: barStyle.width, height: "22px" }}
+                            className={`absolute top-1/2 -translate-y-1/2 rounded-md ${statusBarColors[p.status] || "bg-gray-400"} opacity-85 hover:opacity-100 transition-all shadow-sm cursor-default`}
+                            style={{ left: barStyle.left, width: barStyle.width, height: "26px" }}
                             title={`${p.name}\n${p.projectStart} → ${p.projectFinish}`}
                           >
                             <span className="absolute inset-0 flex items-center px-2 text-[9px] text-white font-bold whitespace-nowrap overflow-hidden">{p.id}</span>
@@ -1742,9 +1750,9 @@ function CMGBiddingApp() {
                 <Star size={15} className="fill-yellow-400 text-yellow-400" />
                 <span className="text-sm font-semibold text-yellow-800">Starred Projects</span>
               </div>
-              <div className="overflow-x-auto">
+              <div className="overflow-auto" style={{ maxHeight: "calc(100vh - 360px)" }}>
                 <table className="w-full text-sm text-left">
-                  <thead>
+                  <thead className="sticky top-0 z-10">
                     <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wide border-b border-slate-200">
                       <th className="px-4 py-3 font-semibold">#</th>
                       <th className="px-4 py-3 font-semibold">Folder No.</th>
