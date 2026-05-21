@@ -38,6 +38,7 @@ import {
   Download,
   Upload,
   FileSpreadsheet,
+  Printer,
   LayoutGrid,
   List,
   ArrowUpDown,
@@ -1380,6 +1381,7 @@ function CMGBiddingApp() {
   const TimelineView = () => {
     const [tlFilter, setTlFilter] = React.useState<string | null>(null);
     const [tlReportDate, setTlReportDate] = React.useState<string>(new Date().toISOString().split("T")[0]);
+    const [tlPaperSize, setTlPaperSize] = React.useState<"A4" | "A3">("A4");
 
     const statusBarColors: Record<string, string> = {
       Success: "bg-green-500", Submitted: "bg-blue-500", Not_Success: "bg-red-500",
@@ -1418,6 +1420,70 @@ function CMGBiddingApp() {
       monthCur.setMonth(monthCur.getMonth() + 1);
     }
 
+    // Year boundary positions for divider lines
+    const yearBoundaries: { year: number; left: string }[] = [];
+    for (let y = startMonth.getFullYear() + 1; y <= endMonth.getFullYear(); y++) {
+      const bd = new Date(y, 0, 1);
+      if (bd > startMonth && bd < endMonth)
+        yearBoundaries.push({ year: y, left: `${((bd.getTime() - startMonth.getTime()) / totalMs) * 100}%` });
+    }
+
+    const printReport = () => {
+      const prev = document.getElementById("__tl_print_css__");
+      if (prev) prev.remove();
+      const s = document.createElement("style");
+      s.id = "__tl_print_css__";
+      s.textContent = [
+        "@media print {",
+        `  @page { size: ${tlPaperSize} landscape; margin: 8mm; }`,
+        "  body * { visibility: hidden; }",
+        "  #tl-print-area, #tl-print-area * { visibility: visible; }",
+        "  #tl-print-area { position: absolute; left: 0; top: 0; width: 100%; }",
+        "  #tl-print-area .overflow-x-auto { overflow: visible !important; }",
+        "  .no-print { display: none !important; }",
+        "}",
+      ].join("\n");
+      document.head.appendChild(s);
+      window.print();
+      setTimeout(() => document.getElementById("__tl_print_css__")?.remove(), 2000);
+    };
+
+    const exportToExcel = () => {
+      const data = filtered.map((p, idx) => ({
+        "#": idx + 1,
+        "Bidding ID": p.id,
+        "Project Name": p.name,
+        "Folder No.": p.folderNo,
+        "Customer": p.customerName || "",
+        "Owner": (p as any).ownerName || "",
+        "Type Project": p.typeProject,
+        "Type Contract": p.typeContract,
+        "Type Bidding": p.typeBidding,
+        "Status": p.status,
+        "Bidding Value (THB)": p.biddingValue,
+        "Budget Est. (THB)": p.budgetEst,
+        "Award Date": p.awardDate || "",
+        "Project Start": p.projectStart || "",
+        "Project Finish": p.projectFinish || "",
+        "RFQ No.": p.rfqNo,
+        "Commercial Sub Date": p.commercialSubDate || "",
+        "Technical Sub Date": p.technicalSubDate || "",
+        "Bid Bond Required": p.bidBondReq,
+        "Bid Bond Value (THB)": p.bidBondValue,
+        "Note": p.biddingNote || "",
+      }));
+      const ws = XLSX.utils.json_to_sheet(data);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Bidding Timeline");
+      const filterLabel =
+        tlFilter === null        ? "All"
+        : tlFilter === "_YEARLY"    ? "Yearly"
+        : tlFilter === "_BUDGETARY" ? "Budgetary"
+        : tlFilter === "_STARRED"   ? "Starred"
+        : tlFilter;
+      XLSX.writeFile(wb, `BiddingTimeline_${filterLabel}_${tlReportDate}.xlsx`);
+    };
+
     const getBarStyle = (p: typeof projects[0]) => {
       if (!p.projectStart || !p.projectFinish) return null;
       const s = new Date(p.projectStart).getTime();
@@ -1443,7 +1509,7 @@ function CMGBiddingApp() {
     ] as { label: string; value: string | null; active: string; idle: string }[];
 
     return (
-      <div className="space-y-6">
+      <div id="tl-print-area" className="space-y-6">
         <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
           {/* Header */}
           <div className="bg-gradient-to-r from-indigo-700 to-indigo-500 px-6 py-4 flex flex-wrap items-center justify-between gap-4">
@@ -1451,7 +1517,31 @@ function CMGBiddingApp() {
               <p className="text-indigo-200 text-xs font-semibold uppercase tracking-widest mb-0.5">E1</p>
               <h3 className="text-white text-lg font-bold">Bidding Timeline</h3>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-4 flex-wrap">
+              <button
+                onClick={exportToExcel}
+                className="flex items-center gap-2 px-4 py-1.5 bg-white/20 hover:bg-white/30 text-white text-sm font-semibold rounded-lg border border-white/40 transition-all shadow-sm"
+              >
+                <FileSpreadsheet size={15} />
+                Export to Excel
+              </button>
+              <div className="flex items-center gap-1.5">
+                <select
+                  value={tlPaperSize}
+                  onChange={e => setTlPaperSize(e.target.value as "A4" | "A3")}
+                  className="px-2 py-1.5 rounded-lg border border-white/40 bg-white/20 text-white text-sm font-semibold focus:outline-none cursor-pointer"
+                >
+                  <option value="A4" className="text-gray-800 bg-white">A4</option>
+                  <option value="A3" className="text-gray-800 bg-white">A3</option>
+                </select>
+                <button
+                  onClick={printReport}
+                  className="flex items-center gap-2 px-4 py-1.5 bg-white/20 hover:bg-white/30 text-white text-sm font-semibold rounded-lg border border-white/40 transition-all shadow-sm"
+                >
+                  <Printer size={15} />
+                  Print Report
+                </button>
+              </div>
               <label className="text-indigo-100 text-sm font-medium whitespace-nowrap">Date of Report</label>
               <input type="date"
                 className="px-3 py-1.5 rounded-lg border border-indigo-300 bg-white text-gray-800 text-sm focus:outline-none"
@@ -1497,9 +1587,15 @@ function CMGBiddingApp() {
                     <div className="px-3 py-2.5 border-r border-gray-200 text-right whitespace-nowrap" style={{ width: "90px" }}>Value</div>
                     <div className="px-3 py-2.5 border-r border-gray-200 text-center whitespace-nowrap" style={{ width: "90px" }}>Award Date</div>
                   </div>
-                  <div className="flex flex-1">
+                  <div className="flex flex-1 relative">
                     {months.map((m, i) => (
                       <div key={i} className="flex-1 px-1 py-2.5 text-center text-[10px] border-r border-gray-100 last:border-0 whitespace-nowrap">{m}</div>
+                    ))}
+                    {yearBoundaries.map(yb => (
+                      <div key={yb.year} className="absolute inset-y-0 pointer-events-none" style={{ left: yb.left }}>
+                        <div className="absolute inset-y-0 w-0.5 bg-indigo-400/70 -translate-x-1/2" />
+                        <span className="absolute top-1 text-[10px] font-bold text-indigo-600 whitespace-nowrap" style={{ transform: "translateX(4px)" }}>{yb.year}</span>
+                      </div>
                     ))}
                   </div>
                 </div>
@@ -1533,6 +1629,12 @@ function CMGBiddingApp() {
                         <div className="absolute inset-0 flex pointer-events-none">
                           {months.map((_, i) => <div key={i} className="flex-1 border-r border-gray-100 last:border-0" />)}
                         </div>
+                        {/* Year dividers */}
+                        {yearBoundaries.map(yb => (
+                          <div key={yb.year} className="absolute inset-y-0 pointer-events-none" style={{ left: yb.left }}>
+                            <div className="absolute inset-y-0 w-0.5 bg-indigo-300/60 -translate-x-1/2" />
+                          </div>
+                        ))}
                         {barStyle ? (
                           <div
                             className={`absolute top-1/2 -translate-y-1/2 rounded-lg ${statusBarColors[p.status] || "bg-gray-400"} opacity-80 hover:opacity-100 transition-all shadow-sm cursor-default`}
