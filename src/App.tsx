@@ -823,9 +823,9 @@ function CMGBiddingApp() {
               วันที่ยื่น
             </button>
           </div>
-          <div className="overflow-x-auto">
+          <div className="overflow-auto" style={{ maxHeight: "calc(100vh - 220px)" }}>
             <table className="w-full text-left border-collapse">
-              <thead>
+              <thead className="sticky top-0 z-10">
                 <tr className="bg-gray-50 text-gray-600 text-sm">
                   <th
                     className="p-4 border-b cursor-pointer select-none hover:bg-gray-100"
