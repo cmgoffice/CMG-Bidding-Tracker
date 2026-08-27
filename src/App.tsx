@@ -17,6 +17,9 @@ import { useAuth } from "./contexts/AuthContext";
 import ProtectedRoute from "./components/ProtectedRoute";
 import ProfileDropdown from "./components/ProfileDropdown";
 import UserManagementView from "./components/UserManagementView";
+import ClientDirectoryView from "./components/ClientDirectoryView";
+import ProjectBiddingView from "./components/ProjectBiddingView";
+import ErrorBoundary from "./components/ErrorBoundary";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
 import PendingPage from "./pages/PendingPage";
@@ -25,29 +28,26 @@ import {
   Users,
   BarChart3,
   PieChart,
-  Plus,
-  Edit,
-  Trash2,
-  Eye,
   FileText,
   Building2,
-  Search,
   CheckCircle2,
   XCircle,
-  Clock,
   Download,
   Upload,
-  FileSpreadsheet,
   Printer,
-  LayoutGrid,
-  List,
-  ArrowUpDown,
-  ArrowUp,
-  ArrowDown,
+  User,
   Star,
   Paperclip,
+  Calendar,
+  ChevronLeft,
+  ChevronRight,
+  Loader2,
+  Tag,
+  DollarSign,
 } from "lucide-react";
 import * as XLSX from "xlsx";
+import jsPDF from "jspdf";
+import html2canvas from "html2canvas";
 
 // --- FILE UPLOAD FIELD COMPONENT ---
 const FileUploadField = ({
@@ -225,6 +225,7 @@ const initialProjects = [
     rfqDate: "",
     customerId: "C-002",
     customerName: "SCG Chemicals",
+    ownerName: "SCG Chemicals",
     contractCase: "Unit_Rate",
     technicalSubDate: "2026-01-10",
     commercialSubDate: "2026-01-15",
@@ -254,6 +255,7 @@ const initialProjects = [
     rfqDate: "",
     customerId: "C-001",
     customerName: "PTT Global Chemical",
+    ownerName: "PTTGC",
     contractCase: "Lump_Sum",
     technicalSubDate: "2025-11-01",
     commercialSubDate: "2025-11-05",
@@ -348,11 +350,7 @@ function CMGBiddingApp() {
 
   const [isClientModalOpen, setIsClientModalOpen] = useState(false);
   const [clientFormData, setClientFormData] = useState<typeof initialClients[0]>(emptyClient);
-  const [clientViewMode, setClientViewMode] = useState<"card" | "table">("card");
 
-  // Project sort state
-  const [projectSortField, setProjectSortField] = useState<"folderNo" | "date" | null>(null);
-  const [projectSortDir, setProjectSortDir] = useState<"asc" | "desc">("asc");
   const [reportDate, setReportDate] = useState<string>(new Date().toISOString().split("T")[0]);
   const [c1StatusFilter, setC1StatusFilter] = useState<string | null>(null);
 
@@ -692,429 +690,70 @@ function CMGBiddingApp() {
   };
 
   // --- PART A: BIDDING PROJECT COMPONENT ---
-  const ProjectView = () => {
-    const [showStarredOnly, setShowStarredOnly] = React.useState(false);
+  const ProjectView = () => (
+    <ProjectBiddingView
+      projects={projects}
+      clients={clients}
+      currentRole={currentRole}
+      initialSearchTerm={searchTerm}
+      onAddProject={() => {
+        pendingProjectUploads.current = [];
+        setProjectFormData(emptyProject);
+        setIsProjectModalOpen(true);
+      }}
+      onEditProject={(project) => {
+        pendingProjectUploads.current = [];
+        setProjectFormData(project);
+        setIsProjectModalOpen(true);
+      }}
+      onDeleteProject={deleteProject}
+      onToggleStar={toggleStar}
+      onDownloadTemplate={handleDownloadTemplate}
+      onImportExcel={handleImportExcel}
+      onExportExcel={handleExportExcel}
+      onNavigateToClientsWithFilter={(clientName) => {
+        setSearchTerm(clientName);
+        setActiveTab("clients");
+      }}
+      formatCurrency={formatCurrency}
+    />
+  );
 
-    const filtered = projects.filter(
-      (p) =>
-        (String(p.name || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
-        String(p.folderNo || "").toLowerCase().includes(searchTerm.toLowerCase())) &&
-        (!showStarredOnly || p.starred)
-    );
-
-    const filteredProjects = [...filtered].sort((a, b) => {
-      if (!projectSortField) return 0;
-      let valA = "";
-      let valB = "";
-      if (projectSortField === "folderNo") {
-        valA = String(a.folderNo || "");
-        valB = String(b.folderNo || "");
-      } else if (projectSortField === "date") {
-        valA = String(a.technicalSubDate || "");
-        valB = String(b.technicalSubDate || "");
-      }
-      const cmp = valA.localeCompare(valB);
-      return projectSortDir === "asc" ? cmp : -cmp;
-    });
-
-    const toggleSort = (field: "folderNo" | "date") => {
-      if (projectSortField === field) {
-        setProjectSortDir(projectSortDir === "asc" ? "desc" : "asc");
-      } else {
-        setProjectSortField(field);
-        setProjectSortDir("asc");
-      }
-    };
-
-    return (
-      <div className="space-y-4">
-        <div className="flex justify-between items-center">
-          <h2 className="text-2xl font-bold text-gray-800">
-            Part A: Bidding Projects
-          </h2>
-          {currentRole.canEdit && (
-            <div className="flex gap-2">
-              <button
-                onClick={handleDownloadTemplate}
-                className="bg-gray-100 text-gray-700 px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-gray-200 border border-gray-300"
-                title="Download Template"
-              >
-                <Download size={18} /> Template
-              </button>
-
-              <label className="bg-gray-100 text-gray-700 px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-gray-200 border border-gray-300 cursor-pointer" title="Import from Excel">
-                <Upload size={18} /> Import
-                <input type="file" accept=".xlsx, .xls" className="hidden" onChange={handleImportExcel} />
-              </label>
-
-              <button
-                onClick={() => handleExportExcel(filteredProjects)}
-                className="bg-green-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-green-700 border border-green-600"
-                title="Export to Excel"
-              >
-                <FileSpreadsheet size={18} /> Export
-              </button>
-
-              <button
-                onClick={() => { pendingProjectUploads.current = []; setProjectFormData(emptyProject); setIsProjectModalOpen(true); }}
-                className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-700"
-              >
-                <Plus size={18} /> New Project
-              </button>
-            </div>
-          )}
-        </div>
-
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="p-4 border-b border-gray-100 flex flex-wrap gap-3 items-center">
-            <div className="relative flex-1 min-w-[200px] max-w-md">
-              <Search className="absolute left-3 top-2.5 text-gray-400" size={18} />
-              <input
-                type="text"
-                placeholder="ค้นหา Folder No. หรือ Project Name..."
-                className="pl-10 pr-4 py-2 w-full border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-            </div>
-            {/* Starred filter */}
-            <button
-              onClick={() => setShowStarredOnly(v => !v)}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm font-medium transition ${
-                showStarredOnly
-                  ? "bg-yellow-50 border-yellow-400 text-yellow-700"
-                  : "bg-white border-gray-300 text-gray-500 hover:bg-gray-50"
-              }`}
-              title="แสดงเฉพาะโปรเจคที่ติดดาว"
-            >
-              <Star size={15} className={showStarredOnly ? "fill-yellow-400 text-yellow-400" : ""} />
-              Starred
-              {showStarredOnly && (
-                <span className="ml-0.5 px-1.5 py-0.5 bg-yellow-400 text-white text-[10px] font-bold rounded-full">
-                  {projects.filter(p => p.starred).length}
-                </span>
-              )}
-            </button>
-            {/* Sort buttons */}
-            <button
-              onClick={() => toggleSort("folderNo")}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm transition ${projectSortField === "folderNo"
-                ? "bg-blue-50 border-blue-400 text-blue-700"
-                : "bg-white border-gray-300 text-gray-600 hover:bg-gray-50"
-                }`}
-              title="เรียงตาม Folder No."
-            >
-              {projectSortField === "folderNo" ? (
-                projectSortDir === "asc" ? <ArrowUp size={15} /> : <ArrowDown size={15} />
-              ) : <ArrowUpDown size={15} />}
-              Folder No.
-            </button>
-            <button
-              onClick={() => toggleSort("date")}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm transition ${projectSortField === "date"
-                ? "bg-blue-50 border-blue-400 text-blue-700"
-                : "bg-white border-gray-300 text-gray-600 hover:bg-gray-50"
-                }`}
-              title="เรียงตามวันที่ยื่น"
-            >
-              {projectSortField === "date" ? (
-                projectSortDir === "asc" ? <ArrowUp size={15} /> : <ArrowDown size={15} />
-              ) : <ArrowUpDown size={15} />}
-              วันที่ยื่น
-            </button>
-          </div>
-          <div className="overflow-auto" style={{ maxHeight: "calc(100vh - 220px)" }}>
-            <table className="w-full text-left border-collapse">
-              <thead className="sticky top-0 z-10">
-                <tr className="bg-gray-50 text-gray-600 text-sm">
-                  <th
-                    className="p-4 border-b cursor-pointer select-none hover:bg-gray-100"
-                    onClick={() => toggleSort("folderNo")}
-                  >
-                    <span className="flex items-center gap-1">
-                      Folder No.
-                      {projectSortField === "folderNo" ? (
-                        projectSortDir === "asc" ? <ArrowUp size={13} /> : <ArrowDown size={13} />
-                      ) : <ArrowUpDown size={13} className="text-gray-400" />}
-                    </span>
-                  </th>
-                  <th className="p-4 border-b w-10 text-center"><Star size={14} className="mx-auto text-gray-400" /></th>
-                  <th className="p-4 border-b">Project Name</th>
-                  <th className="p-4 border-b">Customer</th>
-                  <th className="p-4 border-b">Type</th>
-                  {currentRole.canViewFinancials && (
-                    <th className="p-4 border-b">Value (THB)</th>
-                  )}
-                  <th className="p-4 border-b">Status</th>
-                  <th className="p-4 border-b text-center">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredProjects.map((proj) => (
-                  <tr
-                    key={proj.id}
-                    className="hover:bg-gray-50 border-b last:border-0"
-                  >
-                    <td className="p-4 font-medium text-blue-600">{proj.folderNo}</td>
-                    <td className="p-4 text-center">
-                      <button
-                        onClick={() => toggleStar(proj)}
-                        title={proj.starred ? "ยกเลิกติดดาว" : "ติดดาวโปรเจคนี้"}
-                        className="transition-transform hover:scale-125"
-                      >
-                        <Star
-                          size={17}
-                          className={proj.starred ? "fill-yellow-400 text-yellow-400" : "text-gray-300 hover:text-yellow-400"}
-                        />
-                      </button>
-                    </td>
-                    <td className="p-4">{proj.name}</td>
-                    <td className="p-4">{proj.customerName}</td>
-                    <td className="p-4">{proj.typeProject}</td>
-                    {currentRole.canViewFinancials && (
-                      <td className="p-4">
-                        {formatCurrency(proj.biddingValue)}
-                      </td>
-                    )}
-                    <td className="p-4">
-                      <span
-                        className={`px-3 py-1 rounded-full text-xs font-medium flex items-center gap-1 w-max
-                        ${proj.status === "Won"
-                            ? "bg-green-100 text-green-700"
-                            : proj.status === "Lost"
-                              ? "bg-red-100 text-red-700"
-                              : "bg-yellow-100 text-yellow-700"
-                          }`}
-                      >
-                        {proj.status === "Won" && <CheckCircle2 size={14} />}
-                        {proj.status === "Lost" && <XCircle size={14} />}
-                        {proj.status === "Bidding" && <Clock size={14} />}
-                        {proj.status}
-                      </span>
-                    </td>
-                    <td className="p-4 flex justify-center gap-2">
-                      <button className="text-gray-400 hover:text-blue-600">
-                        <Eye size={18} />
-                      </button>
-                      {currentRole.canEdit && (
-                        <>
-                          <button
-                            onClick={() => { pendingProjectUploads.current = []; setProjectFormData(proj); setIsProjectModalOpen(true); }}
-                            className="text-gray-400 hover:text-green-600"
-                            title="Edit Project"
-                          >
-                            <Edit size={18} />
-                          </button>
-                          <button
-                            onClick={() => {
-                              if (window.confirm("Are you sure you want to delete this project?")) {
-                                deleteProject(proj.id);
-                              }
-                            }}
-                            className="text-gray-400 hover:text-red-600"
-                            title="Delete Project"
-                          >
-                            <Trash2 size={18} />
-                          </button>
-                        </>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  // --- PART B: CLIENT LIST COMPONENT ---
+  // --- PART B: CLIENT DIRECTORY COMPONENT ---
   const ClientView = () => (
-    <div className="space-y-4">
-      <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold text-gray-800">
-          Part B: Client List
-        </h2>
-        <div className="flex items-center gap-2">
-          {/* View Toggle */}
-          <div className="flex border border-gray-300 rounded-lg overflow-hidden">
-            <button
-              onClick={() => setClientViewMode("card")}
-              className={`px-3 py-2 flex items-center gap-1.5 text-sm transition ${clientViewMode === "card"
-                ? "bg-blue-600 text-white"
-                : "bg-white text-gray-600 hover:bg-gray-50"
-                }`}
-              title="Card View"
-            >
-              <LayoutGrid size={16} /> Card
-            </button>
-            <button
-              onClick={() => setClientViewMode("table")}
-              className={`px-3 py-2 flex items-center gap-1.5 text-sm border-l border-gray-300 transition ${clientViewMode === "table"
-                ? "bg-blue-600 text-white"
-                : "bg-white text-gray-600 hover:bg-gray-50"
-                }`}
-              title="Table View"
-            >
-              <List size={16} /> Table
-            </button>
-          </div>
-
-          {currentRole.canEdit && (
-            <>
-              <button
-                onClick={handleDownloadClientTemplate}
-                className="bg-gray-100 text-gray-700 px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-gray-200 border border-gray-300"
-                title="Download Client Template"
-              >
-                <Download size={18} /> Template
-              </button>
-
-              <label className="bg-gray-100 text-gray-700 px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-gray-200 border border-gray-300 cursor-pointer" title="Import from Excel">
-                <Upload size={18} /> Import
-                <input type="file" accept=".xlsx, .xls" className="hidden" onChange={handleImportClientExcel} />
-              </label>
-
-              <button
-                onClick={() => handleExportClientExcel(clients)}
-                className="bg-green-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-green-700 border border-green-600"
-                title="Export to Excel"
-              >
-                <FileSpreadsheet size={18} /> Export
-              </button>
-
-              <button
-                onClick={() => { setClientFormData(emptyClient); setIsClientModalOpen(true); }}
-                className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-700"
-              >
-                <Plus size={18} /> Add Client
-              </button>
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* === CARD VIEW === */}
-      {clientViewMode === "card" && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {clients.map((client) => (
-            <div
-              key={client.id}
-              className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition"
-            >
-              <div className="flex justify-between items-start mb-4">
-                <div>
-                  <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
-                    {client.name}
-                    {currentRole.canEdit && (
-                      <>
-                        <button
-                          onClick={() => { setClientFormData(client); setIsClientModalOpen(true); }}
-                          className="text-gray-400 hover:text-blue-600"
-                          title="Edit Client"
-                        >
-                          <Edit size={16} />
-                        </button>
-                        <button
-                          onClick={() => {
-                            if (window.confirm("Are you sure you want to delete this client?")) {
-                              deleteClient(client.id);
-                            }
-                          }}
-                          className="text-gray-400 hover:text-red-600"
-                          title="Delete Client"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </>
-                    )}
-                  </h3>
-                  <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded mt-1 inline-block">
-                    {client.type}
-                  </span>
-                </div>
-                <Building2 className="text-blue-200" size={32} />
-              </div>
-              <div className="text-sm text-gray-600 space-y-2 mb-4">
-                <p><strong>ID:</strong> {client.id}</p>
-                <p className="truncate"><strong>Address:</strong> {client.address}</p>
-              </div>
-              <div className="border-t pt-4">
-                <p className="text-xs font-semibold text-gray-500 mb-2">Primary Contact</p>
-                <p className="text-sm font-medium">{client.c1Name}</p>
-                <p className="text-xs text-gray-500">{client.c1Tel} | {client.c1Email}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* === TABLE VIEW === */}
-      {clientViewMode === "table" && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="overflow-auto" style={{ maxHeight: "calc(100vh - 200px)" }}>
-            <table className="w-full text-left border-collapse">
-              <thead className="sticky top-0 z-10">
-                <tr className="bg-gray-50 text-gray-600 text-sm">
-                  <th className="p-4 border-b">Client ID</th>
-                  <th className="p-4 border-b">Client Name</th>
-                  <th className="p-4 border-b">Type</th>
-                  <th className="p-4 border-b">Address</th>
-                  <th className="p-4 border-b">Contact 1</th>
-                  <th className="p-4 border-b">Tel</th>
-                  <th className="p-4 border-b">Email</th>
-                  <th className="p-4 border-b text-center">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {clients.map((client) => (
-                  <tr key={client.id} className="hover:bg-gray-50 border-b last:border-0">
-                    <td className="p-4 font-medium text-blue-600">{client.id}</td>
-                    <td className="p-4 font-medium">{client.name}</td>
-                    <td className="p-4">
-                      <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">
-                        {client.type}
-                      </span>
-                    </td>
-                    <td className="p-4 text-sm text-gray-600 max-w-xs truncate">{client.address}</td>
-                    <td className="p-4 text-sm">{client.c1Name}</td>
-                    <td className="p-4 text-sm text-gray-500">{client.c1Tel}</td>
-                    <td className="p-4 text-sm text-gray-500">{client.c1Email}</td>
-                    <td className="p-4">
-                      <div className="flex justify-center gap-2">
-                        {currentRole.canEdit && (
-                          <>
-                            <button
-                              onClick={() => { setClientFormData(client); setIsClientModalOpen(true); }}
-                              className="text-gray-400 hover:text-green-600"
-                              title="Edit Client"
-                            >
-                              <Edit size={18} />
-                            </button>
-                            <button
-                              onClick={() => {
-                                if (window.confirm("Are you sure you want to delete this client?")) {
-                                  deleteClient(client.id);
-                                }
-                              }}
-                              className="text-gray-400 hover:text-red-600"
-                              title="Delete Client"
-                            >
-                              <Trash2 size={18} />
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-    </div>
+    <ClientDirectoryView
+      clients={clients}
+      projects={projects}
+      currentRole={currentRole}
+      initialSearchTerm={searchTerm}
+      onAddClient={() => {
+        setClientFormData(emptyClient);
+        setIsClientModalOpen(true);
+      }}
+      onEditClient={(client) => {
+        setClientFormData(client);
+        setIsClientModalOpen(true);
+      }}
+      onDeleteClient={deleteClient}
+      onDownloadTemplate={handleDownloadClientTemplate}
+      onImportExcel={handleImportClientExcel}
+      onExportExcel={handleExportClientExcel}
+      onNavigateToProjectsWithFilter={(clientName) => {
+        setSearchTerm(clientName);
+        setActiveTab("projects");
+      }}
+      onAddProjectForClient={(clientId, clientName, clientOwner) => {
+        pendingProjectUploads.current = [];
+        setProjectFormData({
+          ...emptyProject,
+          customerId: clientId,
+          customerName: clientName,
+          ownerName: clientOwner || "",
+        });
+        setIsProjectModalOpen(true);
+      }}
+      formatCurrency={formatCurrency}
+    />
   );
 
   // --- PART C: REPORTS COMPONENT ---
@@ -1379,9 +1018,12 @@ function CMGBiddingApp() {
 
   // --- PART E: BIDDING TIMELINE COMPONENT ---
   const TimelineView = () => {
-    const [tlFilter, setTlFilter] = React.useState<string | null>(null);
+    const [tlFilter, setTlFilter] = React.useState<string | null>("_STARRED");
     const [tlReportDate, setTlReportDate] = React.useState<string>(new Date().toISOString().split("T")[0]);
     const [tlPaperSize, setTlPaperSize] = React.useState<"A4" | "A3">("A4");
+    const [spanMode, setSpanMode] = React.useState<"auto" | "3m" | "5m" | "8m" | "custom">("auto");
+    const [baseStartMonth, setBaseStartMonth] = React.useState<string>("");
+    const [customMonthsCount, setCustomMonthsCount] = React.useState<number>(6);
 
     const formatCurrencyCompact = (val: number) => {
       if (!val) return "—";
@@ -1412,29 +1054,265 @@ function CMGBiddingApp() {
       : projects.filter(p => p.status === tlFilter);
     const withDates = projects.filter(p => p.projectStart && p.projectFinish);
 
-    // Compute timeline range
-    const allDates = withDates.flatMap(p => [new Date(p.projectStart), new Date(p.projectFinish)]);
-    const minDate = allDates.length > 0 ? new Date(Math.min(...allDates.map(d => d.getTime()))) : new Date();
-    const maxDate = allDates.length > 0 ? new Date(Math.max(...allDates.map(d => d.getTime()))) : new Date(new Date().setFullYear(new Date().getFullYear() + 1));
-    const startMonth = new Date(minDate.getFullYear(), minDate.getMonth(), 1);
-    const endMonth = new Date(maxDate.getFullYear(), maxDate.getMonth() + 1, 1);
-    const totalMs = endMonth.getTime() - startMonth.getTime() || 1;
+    // Helper to safely parse "YYYY-MM-DD"
+    const parseDateSafe = (dStr?: string) => {
+      if (!dStr) return null;
+      const parts = dStr.split("-");
+      if (parts.length !== 3) return null;
+      const y = parseInt(parts[0], 10);
+      const m = parseInt(parts[1], 10) - 1;
+      const d = parseInt(parts[2], 10);
+      if (isNaN(y) || isNaN(m) || isNaN(d)) return null;
+      return new Date(y, m, d);
+    };
 
-    // Month labels
-    const months: string[] = [];
-    const monthCur = new Date(startMonth);
-    while (monthCur < endMonth) {
-      months.push(monthCur.toLocaleDateString("en-GB", { month: "short", year: "2-digit" }));
-      monthCur.setMonth(monthCur.getMonth() + 1);
+    // Helper to parse "YYYY-MM"
+    const parseYearMonth = (ymStr: string) => {
+      if (!ymStr) return null;
+      const parts = ymStr.split("-");
+      if (parts.length !== 2) return null;
+      const y = parseInt(parts[0], 10);
+      const m = parseInt(parts[1], 10) - 1;
+      if (isNaN(y) || isNaN(m)) return null;
+      return { year: y, month: m };
+    };
+
+    // Compute automatic min and max date from projects
+    const validDates = withDates.flatMap(p => {
+      const s = parseDateSafe(p.projectStart);
+      const e = parseDateSafe(p.projectFinish);
+      return (s && e) ? [s, e] : [];
+    });
+
+    const now = new Date();
+    const autoMinDate = validDates.length > 0
+      ? new Date(Math.min(...validDates.map(d => d.getTime())))
+      : new Date(now.getFullYear(), 0, 1);
+    const autoMaxDate = validDates.length > 0
+      ? new Date(Math.max(...validDates.map(d => d.getTime())))
+      : new Date(now.getFullYear() + 1, 11, 31);
+
+    // Determine current report date year & month
+    const reportDateObj = parseDateSafe(tlReportDate) || now;
+    const reportMonthStr = `${reportDateObj.getFullYear()}-${String(reportDateObj.getMonth() + 1).padStart(2, "0")}`;
+
+    // Active base start month string
+    const activeStartMonthStr = baseStartMonth || reportMonthStr;
+
+    // Determine startMonth and endMonth according to spanMode
+    let startMonth: Date;
+    let endMonth: Date;
+
+    if (spanMode === "auto") {
+      startMonth = new Date(autoMinDate.getFullYear(), autoMinDate.getMonth(), 1);
+      endMonth = new Date(autoMaxDate.getFullYear(), autoMaxDate.getMonth() + 1, 1);
+    } else if (spanMode === "3m" || spanMode === "5m" || spanMode === "8m") {
+      const numMonths = spanMode === "3m" ? 3 : spanMode === "5m" ? 5 : 8;
+      const parsedStart = parseYearMonth(activeStartMonthStr) || { year: reportDateObj.getFullYear(), month: reportDateObj.getMonth() };
+      startMonth = new Date(parsedStart.year, parsedStart.month, 1);
+      endMonth = new Date(parsedStart.year, parsedStart.month + numMonths, 1);
+    } else { // "custom"
+      const numMonths = Math.max(1, Math.min(120, customMonthsCount || 1));
+      const parsedStart = parseYearMonth(activeStartMonthStr) || { year: reportDateObj.getFullYear(), month: reportDateObj.getMonth() };
+      startMonth = new Date(parsedStart.year, parsedStart.month, 1);
+      endMonth = new Date(parsedStart.year, parsedStart.month + numMonths, 1);
     }
 
-    // Year boundary positions for divider lines
-    const yearBoundaries: { year: number; left: string }[] = [];
-    for (let y = startMonth.getFullYear() + 1; y <= endMonth.getFullYear(); y++) {
-      const bd = new Date(y, 0, 1);
-      if (bd > startMonth && bd < endMonth)
-        yearBoundaries.push({ year: y, left: `${((bd.getTime() - startMonth.getTime()) / totalMs) * 100}%` });
+    const startYear = startMonth.getFullYear();
+    const startMonth0 = startMonth.getMonth();
+
+    // Shift start month by delta (+1 or -1)
+    const shiftMonth = (delta: number) => {
+      const parsed = parseYearMonth(activeStartMonthStr) || { year: reportDateObj.getFullYear(), month: reportDateObj.getMonth() };
+      const d = new Date(parsed.year, parsed.month + delta, 1);
+      const newY = d.getFullYear();
+      const newM = String(d.getMonth() + 1).padStart(2, "0");
+      setBaseStartMonth(`${newY}-${newM}`);
+    };
+
+    // Build month info list
+    const monthsInfo: { year: number; month: number; label: string }[] = [];
+    const curMonth = new Date(startMonth);
+    while (curMonth < endMonth) {
+      monthsInfo.push({
+        year: curMonth.getFullYear(),
+        month: curMonth.getMonth(),
+        label: curMonth.toLocaleDateString("en-GB", { month: "short" }),
+      });
+      curMonth.setMonth(curMonth.getMonth() + 1);
     }
+    const totalMonths = monthsInfo.length || 1;
+
+    // Group consecutive months by year for top header band
+    const yearGroups: { year: number; count: number; widthPct: number }[] = [];
+    monthsInfo.forEach(m => {
+      const last = yearGroups[yearGroups.length - 1];
+      if (last && last.year === m.year) {
+        last.count++;
+      } else {
+        yearGroups.push({ year: m.year, count: 1, widthPct: 0 });
+      }
+    });
+    yearGroups.forEach(yg => {
+      yg.widthPct = (yg.count / totalMonths) * 100;
+    });
+
+    // Helper to calculate exact fractional month offset from startMonth
+    const getMonthOffset = (dateStr: string, isFinish: boolean) => {
+      if (!dateStr) return null;
+      const parts = dateStr.split("-");
+      if (parts.length !== 3) return null;
+      const y = parseInt(parts[0], 10);
+      const m = parseInt(parts[1], 10); // 1-12
+      const d = parseInt(parts[2], 10);
+      if (isNaN(y) || isNaN(m) || isNaN(d)) return null;
+
+      const monthIdx = (y - startYear) * 12 + (m - 1 - startMonth0);
+      const daysInMonth = new Date(y, m, 0).getDate(); // last day of month m
+
+      // If start date: fraction is (d - 1) / daysInMonth (0 at beginning of day 1)
+      // If finish date: fraction is d / daysInMonth (1.0 at end of last day of month)
+      const fraction = isFinish
+        ? Math.max(0, Math.min(1, d / daysInMonth))
+        : Math.max(0, Math.min(1, (d - 1) / daysInMonth));
+
+      return monthIdx + fraction;
+    };
+
+    const getBarStyle = (p: typeof projects[0]) => {
+      if (!p.projectStart || !p.projectFinish) return null;
+      const startPos = getMonthOffset(p.projectStart, false);
+      const endPos = getMonthOffset(p.projectFinish, true);
+      if (startPos === null || endPos === null) return null;
+
+      // Check if entirely outside visible range
+      if (endPos <= 0) {
+        return { isOutside: true, outsideNote: `Before range (${p.projectFinish})` };
+      }
+      if (startPos >= totalMonths) {
+        return { isOutside: true, outsideNote: `After range (${p.projectStart})` };
+      }
+
+      // Clamp visible bar portion to timeline range [0, totalMonths]
+      const clampedStart = Math.max(0, startPos);
+      const clampedEnd = Math.min(totalMonths, endPos);
+      const left = (clampedStart / totalMonths) * 100;
+      const rawWidth = ((clampedEnd - clampedStart) / totalMonths) * 100;
+      const width = Math.max(0.6, rawWidth);
+
+      return {
+        isOutside: false,
+        left: `${left}%`,
+        width: `${width}%`,
+        isClippedLeft: startPos < 0,
+        isClippedRight: endPos > totalMonths,
+      };
+    };
+
+    const [isPdfModalOpen, setIsPdfModalOpen] = React.useState(false);
+    const [rowsPerPage, setRowsPerPage] = React.useState<number>(9);
+    const [isGeneratingPdf, setIsGeneratingPdf] = React.useState(false);
+
+    // Update default rows per page on paper size change
+    React.useEffect(() => {
+      setRowsPerPage(tlPaperSize === "A3" ? 14 : 9);
+    }, [tlPaperSize]);
+
+    const filterLabel =
+      tlFilter === null        ? "All"
+      : tlFilter === "_YEARLY"    ? "Yearly"
+      : tlFilter === "_BUDGETARY" ? "Budgetary"
+      : tlFilter === "_STARRED"   ? "Starred"
+      : tlFilter;
+
+    const totalFilteredValue = filtered.reduce((s, p) => s + (p.biddingValue || 0), 0);
+
+    // Multi-page pagination calculations
+    const effectiveRowsPerPage = rowsPerPage <= 0 ? Math.max(1, filtered.length) : rowsPerPage;
+    const totalPages = Math.ceil(filtered.length / effectiveRowsPerPage) || 1;
+    const pages = Array.from({ length: totalPages }, (_, i) =>
+      filtered.slice(i * effectiveRowsPerPage, (i + 1) * effectiveRowsPerPage)
+    );
+
+    const getMonthDisplayLabel = (m: { label: string; month: number; year: number }, totalMonths: number) => {
+      if (totalMonths <= 20) return m.label;
+      if (totalMonths <= 30) return m.label;
+      if (m.month === 0) return "Jan";
+      if (m.month === 6) return "Jul";
+      return m.label.charAt(0);
+    };
+
+    const downloadPdf = async () => {
+      setIsGeneratingPdf(true);
+      try {
+        const container = document.getElementById("tl-pdf-printable-content");
+        if (!container) return;
+
+        const pageElements = container.querySelectorAll<HTMLElement>(".tl-page-sheet");
+        if (pageElements.length === 0) return;
+
+        const isA3 = tlPaperSize === "A3";
+        const pdf = new jsPDF({
+          orientation: "landscape",
+          unit: "mm",
+          format: isA3 ? "a3" : "a4",
+        });
+
+        const pdfWidth = isA3 ? 420 : 297;
+        const pdfHeight = isA3 ? 297 : 210;
+        const margin = 8; // 8mm safe margin from sheet edge
+
+        for (let i = 0; i < pageElements.length; i++) {
+          const pageEl = pageElements[i];
+
+          const canvas = await html2canvas(pageEl, {
+            scale: 2,
+            useCORS: true,
+            logging: false,
+            backgroundColor: "#ffffff",
+            scrollX: 0,
+            scrollY: 0,
+            windowWidth: pageEl.scrollWidth + 40,
+          });
+
+          const imgData = canvas.toDataURL("image/png");
+
+          if (i > 0) {
+            pdf.addPage(isA3 ? "a3" : "a4", "landscape");
+          }
+
+          const availableWidth = pdfWidth - margin * 2;
+          const availableHeight = pdfHeight - margin * 2;
+
+          let renderWidth = availableWidth;
+          let renderHeight = (canvas.height * availableWidth) / canvas.width;
+
+          if (renderHeight > availableHeight) {
+            renderHeight = availableHeight;
+            renderWidth = (canvas.width * availableHeight) / canvas.height;
+          }
+
+          const posX = margin + (availableWidth - renderWidth) / 2;
+          const posY = margin + (availableHeight - renderHeight) / 2;
+
+          pdf.addImage(imgData, "PNG", posX, posY, renderWidth, renderHeight);
+        }
+
+        const filterName =
+          tlFilter === null        ? "All"
+          : tlFilter === "_YEARLY"    ? "Yearly"
+          : tlFilter === "_BUDGETARY" ? "Budgetary"
+          : tlFilter === "_STARRED"   ? "Starred"
+          : tlFilter;
+
+        pdf.save(`BiddingTimeline_${filterName}_${tlReportDate}.pdf`);
+      } catch (err) {
+        console.error("Error generating PDF:", err);
+        alert("เกิดข้อผิดพลาดในการสร้างไฟล์ PDF");
+      } finally {
+        setIsGeneratingPdf(false);
+      }
+    };
 
     const printReport = () => {
       const prev = document.getElementById("__tl_print_css__");
@@ -1443,62 +1321,46 @@ function CMGBiddingApp() {
       s.id = "__tl_print_css__";
       s.textContent = [
         "@media print {",
-        `  @page { size: ${tlPaperSize} landscape; margin: 8mm; }`,
-        "  body * { visibility: hidden; }",
-        "  #tl-print-area, #tl-print-area * { visibility: visible; }",
-        "  #tl-print-area { position: absolute; left: 0; top: 0; width: 100%; }",
-        "  #tl-print-area .overflow-x-auto { overflow: visible !important; }",
+        `  @page { size: ${tlPaperSize} landscape; margin: 6mm; }`,
+        "  body * { visibility: hidden !important; }",
+        "  #tl-pdf-printable-content, #tl-pdf-printable-content * { visibility: visible !important; }",
+        "  #tl-pdf-printable-content {",
+        "    position: absolute !important;",
+        "    left: 0 !important;",
+        "    top: 0 !important;",
+        "    width: 100% !important;",
+        "    margin: 0 !important;",
+        "    padding: 0 !important;",
+        "    background: transparent !important;",
+        "    display: block !important;",
+        "  }",
+        "  .tl-page-sheet {",
+        "    page-break-after: always !important;",
+        "    break-after: page !important;",
+        "    page-break-inside: avoid !important;",
+        "    break-inside: avoid !important;",
+        "    box-shadow: none !important;",
+        "    border: none !important;",
+        "    border-radius: 0 !important;",
+        "    padding: 4mm 5mm !important;",
+        "    margin: 0 !important;",
+        "    width: 100% !important;",
+        "    min-height: 98vh !important;",
+        "    display: flex !important;",
+        "    flex-direction: column !important;",
+        "    justify-content: space-between !important;",
+        "    background: white !important;",
+        "  }",
+        "  .tl-page-sheet:last-child {",
+        "    page-break-after: avoid !important;",
+        "    break-after: avoid !important;",
+        "  }",
         "  .no-print { display: none !important; }",
         "}",
       ].join("\n");
       document.head.appendChild(s);
       window.print();
       setTimeout(() => document.getElementById("__tl_print_css__")?.remove(), 2000);
-    };
-
-    const exportToExcel = () => {
-      const data = filtered.map((p, idx) => ({
-        "#": idx + 1,
-        "Bidding ID": p.id,
-        "Project Name": p.name,
-        "Folder No.": p.folderNo,
-        "Customer": p.customerName || "",
-        "Owner": (p as any).ownerName || "",
-        "Type Project": p.typeProject,
-        "Type Contract": p.typeContract,
-        "Type Bidding": p.typeBidding,
-        "Status": p.status,
-        "Bidding Value (THB)": p.biddingValue,
-        "Budget Est. (THB)": p.budgetEst,
-        "Award Date": p.awardDate || "",
-        "Project Start": p.projectStart || "",
-        "Project Finish": p.projectFinish || "",
-        "RFQ No.": p.rfqNo,
-        "Commercial Sub Date": p.commercialSubDate || "",
-        "Technical Sub Date": p.technicalSubDate || "",
-        "Bid Bond Required": p.bidBondReq,
-        "Bid Bond Value (THB)": p.bidBondValue,
-        "Note": p.biddingNote || "",
-      }));
-      const ws = XLSX.utils.json_to_sheet(data);
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, "Bidding Timeline");
-      const filterLabel =
-        tlFilter === null        ? "All"
-        : tlFilter === "_YEARLY"    ? "Yearly"
-        : tlFilter === "_BUDGETARY" ? "Budgetary"
-        : tlFilter === "_STARRED"   ? "Starred"
-        : tlFilter;
-      XLSX.writeFile(wb, `BiddingTimeline_${filterLabel}_${tlReportDate}.xlsx`);
-    };
-
-    const getBarStyle = (p: typeof projects[0]) => {
-      if (!p.projectStart || !p.projectFinish) return null;
-      const s = new Date(p.projectStart).getTime();
-      const e = new Date(p.projectFinish).getTime();
-      const left = ((s - startMonth.getTime()) / totalMs) * 100;
-      const width = ((e - s) / totalMs) * 100;
-      return { left: `${Math.max(0, left)}%`, width: `${Math.max(0.8, width)}%` };
     };
 
     const filterBtns = [
@@ -1516,6 +1378,164 @@ function CMGBiddingApp() {
       { label: "⭐ Starred",  value: "_STARRED",  active: "bg-yellow-500 text-white border-yellow-500", idle: "bg-white text-yellow-600 border-yellow-300 hover:bg-yellow-50" },
     ] as { label: string; value: string | null; active: string; idle: string }[];
 
+    // Render reusable timeline table
+    const renderTimelineTable = (isModal = false, projectList = filtered, startIdx = 0) => {
+      const leftColWidth = isModal ? 390 : 590;
+      return (
+        <div className="w-full" style={{ minWidth: isModal ? "100%" : `${Math.max(1050, leftColWidth + monthsInfo.length * (monthsInfo.length <= 5 ? 75 : 36))}px` }}>
+          {/* 2-Tier Header row */}
+          <div className="flex border-b border-slate-300 sticky top-0 z-30 shadow-sm bg-slate-100">
+            {/* Left Table Header */}
+            <div
+              className={`shrink-0 flex items-center border-r border-slate-300 sticky left-0 ${isModal ? "z-20 bg-slate-100" : "z-40 bg-slate-100"} shadow-[2px_0_5px_rgba(0,0,0,0.04)] text-[11px] font-bold text-slate-700 uppercase tracking-wider`}
+              style={{ width: `${leftColWidth}px`, height: "46px" }}
+            >
+              {!isModal && (
+                <div className="px-2.5 flex items-center h-full border-r border-slate-200 whitespace-nowrap" style={{ width: "90px" }}>
+                  Bidding ID
+                </div>
+              )}
+              <div className="px-3 flex items-center h-full border-r border-slate-200 truncate" style={{ width: isModal ? "210px" : "200px" }}>
+                Project Name
+              </div>
+              <div className="px-2 flex items-center justify-center h-full border-r border-slate-200 text-center whitespace-nowrap" style={{ width: isModal ? "85px" : "95px" }}>
+                Status
+              </div>
+              <div className={`px-3 flex items-center justify-end h-full ${!isModal ? "border-r border-slate-200" : ""} text-right whitespace-nowrap`} style={{ width: isModal ? "95px" : "110px" }}>
+                Value (THB)
+              </div>
+              {!isModal && (
+                <div className="px-2 flex items-center justify-center h-full text-center whitespace-nowrap" style={{ width: "95px" }}>
+                  Award Date
+                </div>
+              )}
+            </div>
+
+            {/* Right Timeline Header (2-Tier: Year & Month) */}
+            <div className="flex-1 flex flex-col justify-between" style={{ height: "46px" }}>
+              {/* Top Tier: Year Header Bands */}
+              <div className="flex border-b border-indigo-100 bg-indigo-50/70 h-[22px] items-center">
+                {yearGroups.map((yg, idx) => (
+                  <div
+                    key={yg.year}
+                    className={`h-full flex items-center justify-center font-bold text-xs text-indigo-700 tracking-wide border-r border-indigo-200/80 ${idx === yearGroups.length - 1 ? "border-r-0" : ""}`}
+                    style={{ width: `${yg.widthPct}%` }}
+                  >
+                    <span>{yg.year}</span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Bottom Tier: Month Header Columns */}
+              <div className="flex h-[24px] items-center bg-slate-100">
+                {monthsInfo.map((m, i) => {
+                  const label = getMonthDisplayLabel(m, monthsInfo.length);
+                  const isHighlight = m.month === 0 || m.month === 6;
+                  return (
+                    <div
+                      key={i}
+                      className={`flex-1 text-center text-[9px] ${isHighlight ? "font-bold text-indigo-700" : "font-semibold text-slate-600"} truncate border-r ${
+                        m.month === 11 ? "border-r-2 border-r-indigo-300" : "border-r-slate-200"
+                      } last:border-0`}
+                      title={`${m.label} ${m.year}`}
+                    >
+                      {label}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          {/* Project rows */}
+          {projectList.map((p, idx) => {
+            const globalIdx = startIdx + idx;
+            const barStyle = getBarStyle(p);
+            return (
+              <div
+                key={p.id}
+                onDoubleClick={() => {
+                  if (!isModal) {
+                    pendingProjectUploads.current = [];
+                    setProjectFormData(p);
+                    setIsProjectModalOpen(true);
+                  }
+                }}
+                className={`flex border-b border-slate-100 hover:bg-indigo-50/50 transition-colors ${!isModal ? "cursor-pointer" : ""} select-none ${globalIdx % 2 === 0 ? "bg-white" : "bg-slate-50/60"}`}
+                style={{ height: "40px" }}
+              >
+                {/* Left info - Sticky */}
+                <div
+                  className={`shrink-0 flex items-center border-r border-slate-200 sticky left-0 ${isModal ? "z-10" : "z-20"} shadow-[2px_0_5px_rgba(0,0,0,0.03)] ${globalIdx % 2 === 0 ? "bg-white" : "bg-slate-50"}`}
+                  style={{ width: `${leftColWidth}px`, height: "100%" }}
+                >
+                  {!isModal && (
+                    <div className="px-2.5 border-r border-slate-100 flex items-center h-full overflow-hidden" style={{ width: "90px" }}>
+                      <span className="text-[11px] font-bold text-indigo-600 truncate block w-full leading-5 py-0.5">{p.id}</span>
+                    </div>
+                  )}
+                  <div className="px-3 border-r border-slate-100 flex items-center h-full overflow-hidden" style={{ width: isModal ? "210px" : "200px" }} title={`${p.id}: ${p.name}`}>
+                    <span className="text-[11px] font-medium text-slate-800 truncate block w-full leading-5 py-0.5">{p.name}</span>
+                  </div>
+                  <div className="px-1.5 border-r border-slate-100 flex items-center justify-center h-full" style={{ width: isModal ? "85px" : "95px" }}>
+                    <span className={`inline-flex items-center justify-center px-2 py-0.5 rounded-full text-[9px] font-semibold whitespace-nowrap leading-normal ${statusBadgeColors[p.status] || "bg-gray-100 text-gray-500"}`}>{p.status}</span>
+                  </div>
+                  <div className={`px-3 ${!isModal ? "border-r border-slate-100" : ""} flex items-center justify-end h-full`} style={{ width: isModal ? "95px" : "110px" }}>
+                    <span className="text-[11px] font-semibold text-slate-700 whitespace-nowrap tabular-nums leading-5 py-0.5">{formatCurrencyCompact(p.biddingValue)}</span>
+                  </div>
+                  {!isModal && (
+                    <div className="px-2 flex items-center justify-center h-full" style={{ width: "95px" }}>
+                      <span className="text-[10px] font-medium text-slate-500 whitespace-nowrap leading-5 py-0.5">{p.awardDate || "—"}</span>
+                    </div>
+                  )}
+                </div>
+
+              {/* Gantt bar area */}
+              <div className="flex-1 relative h-full flex items-center">
+                {/* Month grid lines */}
+                <div className="absolute inset-0 flex pointer-events-none">
+                  {monthsInfo.map((m, i) => (
+                    <div
+                      key={i}
+                      className={`flex-1 border-r ${m.month === 11 ? "border-r-2 border-r-indigo-200/80" : "border-r border-slate-100"} last:border-0`}
+                    />
+                  ))}
+                </div>
+
+                {/* Project Bar */}
+                {barStyle ? (
+                  barStyle.isOutside ? (
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                      <span className="text-[9px] text-gray-400/80 italic font-medium px-2 py-0.5 rounded bg-gray-50/70 border border-gray-100">
+                        {barStyle.outsideNote}
+                      </span>
+                    </div>
+                  ) : (
+                    <div
+                      className={`absolute ${barStyle.isClippedLeft ? "rounded-r" : barStyle.isClippedRight ? "rounded-l" : "rounded"} ${statusBarColors[p.status] || "bg-gray-400"} opacity-90 hover:opacity-100 transition-all shadow-sm cursor-default flex items-center`}
+                      style={{ left: barStyle.left, width: barStyle.width, height: "22px" }}
+                      title={`${p.id}: ${p.name}\n${p.projectStart} → ${p.projectFinish}\nStatus: ${p.status}\nValue: ${formatCurrencyCompact(p.biddingValue)}`}
+                    >
+                      <span className="px-1.5 text-[9.5px] text-white font-bold whitespace-nowrap overflow-hidden text-ellipsis leading-tight drop-shadow-sm flex items-center gap-1">
+                        {barStyle.isClippedLeft && <span className="opacity-75 text-[8px]">◀</span>}
+                        {p.id}
+                        {barStyle.isClippedRight && <span className="opacity-75 text-[8px]">▶</span>}
+                      </span>
+                    </div>
+                  )
+                ) : (
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <span className="text-[9px] text-gray-300 italic">No dates</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
     return (
       <div id="tl-print-area" className="space-y-6">
         <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
@@ -1527,29 +1547,12 @@ function CMGBiddingApp() {
             </div>
             <div className="flex items-center gap-4 flex-wrap">
               <button
-                onClick={exportToExcel}
-                className="flex items-center gap-2 px-4 py-1.5 bg-white/20 hover:bg-white/30 text-white text-sm font-semibold rounded-lg border border-white/40 transition-all shadow-sm"
+                onClick={() => setIsPdfModalOpen(true)}
+                className="flex items-center gap-2 px-4 py-1.5 bg-white/20 hover:bg-white/30 text-white text-sm font-semibold rounded-lg border border-white/40 transition-all shadow-sm cursor-pointer"
               >
-                <FileSpreadsheet size={15} />
-                Export to Excel
+                <FileText size={15} />
+                Export to PDF
               </button>
-              <div className="flex items-center gap-1.5">
-                <select
-                  value={tlPaperSize}
-                  onChange={e => setTlPaperSize(e.target.value as "A4" | "A3")}
-                  className="px-2 py-1.5 rounded-lg border border-white/40 bg-white/20 text-white text-sm font-semibold focus:outline-none cursor-pointer"
-                >
-                  <option value="A4" className="text-gray-800 bg-white">A4</option>
-                  <option value="A3" className="text-gray-800 bg-white">A3</option>
-                </select>
-                <button
-                  onClick={printReport}
-                  className="flex items-center gap-2 px-4 py-1.5 bg-white/20 hover:bg-white/30 text-white text-sm font-semibold rounded-lg border border-white/40 transition-all shadow-sm"
-                >
-                  <Printer size={15} />
-                  Print Report
-                </button>
-              </div>
               <label className="text-indigo-100 text-sm font-medium whitespace-nowrap">Date of Report</label>
               <input type="date"
                 className="px-3 py-1.5 rounded-lg border border-indigo-300 bg-white text-gray-800 text-sm focus:outline-none"
@@ -1580,87 +1583,142 @@ function CMGBiddingApp() {
             {tlFilter && <span className="ml-auto text-xs text-gray-400">Showing <strong>{filtered.length}</strong> of {projects.length}</span>}
           </div>
 
-          {/* Gantt Chart */}
+          {/* Timeline Range Span Selector */}
+          <div className="border-b border-gray-100 px-5 py-2.5 flex flex-wrap items-center justify-between gap-3 bg-slate-50/80 text-xs">
+            {/* Left: Span Mode Buttons */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-semibold text-gray-600 whitespace-nowrap flex items-center gap-1.5">
+                <Calendar size={14} className="text-indigo-600" />
+                ช่วงเวลา (Timeline Range):
+              </span>
+              
+              <div className="inline-flex rounded-lg p-0.5 bg-gray-200/80 border border-gray-300 shadow-inner">
+                <button
+                  onClick={() => setSpanMode("auto")}
+                  className={`px-3 py-1 rounded-md font-semibold transition text-xs ${
+                    spanMode === "auto"
+                      ? "bg-white text-indigo-700 shadow-sm"
+                      : "text-gray-600 hover:text-gray-900"
+                  }`}
+                  title="ดูตั้งแต่วันเริ่มต้นแรกสุดถึงวันสิ้นสุดท้ายสุดของทุกโครงการ"
+                >
+                  ทั้งหมด (Auto)
+                </button>
+                <button
+                  onClick={() => setSpanMode("3m")}
+                  className={`px-3 py-1 rounded-md font-semibold transition text-xs ${
+                    spanMode === "3m"
+                      ? "bg-white text-indigo-700 shadow-sm"
+                      : "text-gray-600 hover:text-gray-900"
+                  }`}
+                >
+                  3 เดือน
+                </button>
+                <button
+                  onClick={() => setSpanMode("5m")}
+                  className={`px-3 py-1 rounded-md font-semibold transition text-xs ${
+                    spanMode === "5m"
+                      ? "bg-white text-indigo-700 shadow-sm"
+                      : "text-gray-600 hover:text-gray-900"
+                  }`}
+                >
+                  5 เดือน
+                </button>
+                <button
+                  onClick={() => setSpanMode("8m")}
+                  className={`px-3 py-1 rounded-md font-semibold transition text-xs ${
+                    spanMode === "8m"
+                      ? "bg-white text-indigo-700 shadow-sm"
+                      : "text-gray-600 hover:text-gray-900"
+                  }`}
+                >
+                  8 เดือน
+                </button>
+                <button
+                  onClick={() => setSpanMode("custom")}
+                  className={`px-3 py-1 rounded-md font-semibold transition text-xs ${
+                    spanMode === "custom"
+                      ? "bg-white text-indigo-700 shadow-sm"
+                      : "text-gray-600 hover:text-gray-900"
+                  }`}
+                >
+                  กำหนดเอง (Custom)
+                </button>
+              </div>
+            </div>
+
+            {/* Right: Date navigation / month pickers */}
+            <div className="flex items-center gap-2.5 flex-wrap">
+              {spanMode !== "auto" && (
+                <div className="flex items-center gap-2 bg-white px-2 py-0.5 rounded-lg border border-gray-300 shadow-sm flex-wrap">
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => shiftMonth(-1)}
+                      title="เดือนก่อนหน้า"
+                      className="p-1 hover:bg-indigo-50 rounded text-gray-600 hover:text-indigo-600 transition"
+                    >
+                      <ChevronLeft size={14} />
+                    </button>
+                    <label className="text-gray-500 text-[11px] font-medium">เริ่มต้น:</label>
+                    <input
+                      type="month"
+                      value={activeStartMonthStr}
+                      onChange={e => setBaseStartMonth(e.target.value)}
+                      className="text-xs font-semibold text-indigo-700 bg-transparent focus:outline-none cursor-pointer"
+                    />
+                    <button
+                      onClick={() => shiftMonth(1)}
+                      title="เดือนถัดไป"
+                      className="p-1 hover:bg-indigo-50 rounded text-gray-600 hover:text-indigo-600 transition"
+                    >
+                      <ChevronRight size={14} />
+                    </button>
+                  </div>
+
+                  {spanMode === "custom" && (
+                    <div className="flex items-center gap-1.5 pl-2 border-l border-gray-200">
+                      <label className="text-gray-600 text-[11px] font-medium">จำนวน:</label>
+                      <div className="flex items-center">
+                        <button
+                          type="button"
+                          onClick={() => setCustomMonthsCount(prev => Math.max(1, prev - 1))}
+                          className="w-5 h-5 flex items-center justify-center bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-l font-bold text-xs border border-r-0 border-gray-300 cursor-pointer"
+                        >
+                          -
+                        </button>
+                        <input
+                          type="number"
+                          min={1}
+                          max={120}
+                          value={customMonthsCount}
+                          onChange={e => setCustomMonthsCount(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                          className="w-12 h-5 text-center text-xs font-bold text-indigo-700 border border-gray-300 bg-white focus:outline-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setCustomMonthsCount(prev => Math.min(120, prev + 1))}
+                          className="w-5 h-5 flex items-center justify-center bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-r font-bold text-xs border border-l-0 border-gray-300 cursor-pointer"
+                        >
+                          +
+                        </button>
+                      </div>
+                      <span className="text-[11px] font-medium text-gray-500">เดือน</span>
+                    </div>
+                  )}
+                </div>
+              )}
+              <span className="text-[11px] text-gray-500 bg-white/60 px-2.5 py-1 rounded-md border border-gray-200 shadow-2xs">
+                แสดงผล: <strong className="text-indigo-600">{monthsInfo.length} เดือน</strong> ({monthsInfo[0]?.label} {monthsInfo[0]?.year} – {monthsInfo[monthsInfo.length - 1]?.label} {monthsInfo[monthsInfo.length - 1]?.year})
+              </span>
+            </div>
+          </div>
+
+          {/* Gantt Chart on Main Page */}
           {filtered.length === 0 ? (
             <div className="py-16 text-center text-gray-400 italic">No projects match the filter.</div>
           ) : (
-            <div className="overflow-auto" style={{ maxHeight: "calc(100vh - 260px)" }}>
-              <div style={{ minWidth: "1100px" }}>
-                {/* Header row */}
-                <div className="flex bg-slate-100 border-b border-slate-300 text-[11px] font-bold text-slate-600 uppercase tracking-wider sticky top-0 z-10 shadow-sm">
-                  <div className="shrink-0 flex" style={{ width: "610px" }}>
-                    <div className="px-3 py-3 border-r border-slate-200 whitespace-nowrap" style={{ width: "95px" }}>Bidding ID</div>
-                    <div className="px-3 py-3 border-r border-slate-200" style={{ width: "205px" }}>Project Name</div>
-                    <div className="px-3 py-3 border-r border-slate-200 text-center whitespace-nowrap" style={{ width: "100px" }}>Status</div>
-                    <div className="px-3 py-3 border-r border-slate-200 text-right whitespace-nowrap" style={{ width: "110px" }}>Value (THB)</div>
-                    <div className="px-3 py-3 border-r border-slate-200 text-center whitespace-nowrap" style={{ width: "100px" }}>Award Date</div>
-                  </div>
-                  <div className="flex flex-1 relative">
-                    {months.map((m, i) => (
-                      <div key={i} className="flex-1 px-1 py-2.5 text-center text-[10px] border-r border-gray-100 last:border-0 whitespace-nowrap">{m}</div>
-                    ))}
-                    {yearBoundaries.map(yb => (
-                      <div key={yb.year} className="absolute inset-y-0 pointer-events-none" style={{ left: yb.left }}>
-                        <div className="absolute inset-y-0 w-0.5 bg-indigo-400/70 -translate-x-1/2" />
-                        <span className="absolute top-1 text-[10px] font-bold text-indigo-600 whitespace-nowrap" style={{ transform: "translateX(4px)" }}>{yb.year}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Project rows */}
-                {filtered.map((p, idx) => {
-                  const barStyle = getBarStyle(p);
-                  return (
-                    <div key={p.id} onDoubleClick={() => { pendingProjectUploads.current = []; setProjectFormData(p); setIsProjectModalOpen(true); }} className={`flex border-b border-slate-100 last:border-0 hover:bg-indigo-50/50 transition-colors cursor-pointer select-none ${idx % 2 === 0 ? "bg-white" : "bg-slate-50/60"}`} style={{ minHeight: "50px", alignItems: "stretch" }}>
-                      {/* Left info */}
-                      <div className="shrink-0 flex" style={{ width: "610px" }}>
-                        <div className="px-3 py-2 border-r border-slate-100 self-stretch flex items-center" style={{ width: "95px" }}>
-                          <span className="text-[11px] font-bold text-indigo-600 truncate block w-full">{p.id}</span>
-                        </div>
-                        <div className="px-3 py-2 border-r border-slate-100 self-stretch flex items-center" style={{ width: "205px" }}>
-                          <span className="text-[11px] font-medium text-slate-800 line-clamp-2 leading-snug">{p.name}</span>
-                        </div>
-                        <div className="px-2 py-2 border-r border-slate-100 self-stretch flex items-center justify-center" style={{ width: "100px" }}>
-                          <span className={`inline-flex items-center justify-center px-2 py-0.5 rounded-full text-[10px] font-semibold whitespace-nowrap ${statusBadgeColors[p.status] || "bg-gray-100 text-gray-500"}`}>{p.status}</span>
-                        </div>
-                        <div className="px-3 py-2 border-r border-slate-100 self-stretch flex items-center justify-end" style={{ width: "110px" }}>
-                          <span className="text-[11px] font-bold text-slate-700 whitespace-nowrap tabular-nums">{formatCurrencyCompact(p.biddingValue)}</span>
-                        </div>
-                        <div className="px-2 py-2 border-r border-slate-100 self-stretch flex items-center justify-center" style={{ width: "100px" }}>
-                          <span className="text-[10px] font-medium text-slate-500 whitespace-nowrap">{p.awardDate || "—"}</span>
-                        </div>
-                      </div>
-                      {/* Gantt bar */}
-                      <div className="flex-1 relative" style={{ minHeight: "44px" }}>
-                        {/* Month grid */}
-                        <div className="absolute inset-0 flex pointer-events-none">
-                          {months.map((_, i) => <div key={i} className="flex-1 border-r border-gray-100 last:border-0" />)}
-                        </div>
-                        {/* Year dividers */}
-                        {yearBoundaries.map(yb => (
-                          <div key={yb.year} className="absolute inset-y-0 pointer-events-none" style={{ left: yb.left }}>
-                            <div className="absolute inset-y-0 w-0.5 bg-indigo-300/60 -translate-x-1/2" />
-                          </div>
-                        ))}
-                        {barStyle ? (
-                          <div
-                            className={`absolute top-1/2 -translate-y-1/2 rounded-md ${statusBarColors[p.status] || "bg-gray-400"} opacity-85 hover:opacity-100 transition-all shadow-sm cursor-default`}
-                            style={{ left: barStyle.left, width: barStyle.width, height: "26px" }}
-                            title={`${p.name}\n${p.projectStart} → ${p.projectFinish}`}
-                          >
-                            <span className="absolute inset-0 flex items-center px-2 text-[9px] text-white font-bold whitespace-nowrap overflow-hidden">{p.id}</span>
-                          </div>
-                        ) : (
-                          <div className="absolute inset-0 flex items-center justify-center">
-                            <span className="text-[10px] text-gray-300 italic">No dates</span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+            <div className="overflow-auto" style={{ maxHeight: "calc(100vh - 280px)" }}>
+              {renderTimelineTable(false, filtered, 0)}
             </div>
           )}
 
@@ -1675,6 +1733,172 @@ function CMGBiddingApp() {
             <span className="ml-auto text-gray-400">Date of Report: <strong className="text-gray-600">{tlReportDate}</strong></span>
           </div>
         </div>
+
+        {/* MODAL PREVIEW FOR PDF EXPORT */}
+        {isPdfModalOpen && (
+          <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-7xl max-h-[94vh] flex flex-col overflow-hidden border border-slate-300 animate-in fade-in zoom-in-95 duration-150">
+              {/* Modal Header */}
+              <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 px-6 py-3.5 flex items-center justify-between text-white border-b border-indigo-800/40 shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-indigo-500/20 border border-indigo-400/30 flex items-center justify-center text-indigo-300">
+                    <FileText size={20} />
+                  </div>
+                  <div>
+                    <h4 className="text-base font-bold text-white flex items-center gap-2">
+                      ตัวอย่างก่อนบันทึก PDF
+                      <span className="text-[11px] font-normal text-indigo-300 bg-indigo-900/60 px-2 py-0.5 rounded-full border border-indigo-700/50">
+                        {totalPages > 1 ? `${totalPages} หน้า` : "1 หน้า"}
+                      </span>
+                    </h4>
+                    <p className="text-xs text-indigo-200/80">ตรวจสอบตาราง Timeline และดาวน์โหลดเป็นไฟล์ PDF คุณภาพสูง</p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  {/* Paper Size selector */}
+                  <div className="flex items-center gap-2 bg-white/10 px-3 py-1 rounded-lg border border-white/20">
+                    <label className="text-xs text-indigo-100 font-medium whitespace-nowrap">ขนาดกระดาษ:</label>
+                    <select
+                      value={tlPaperSize}
+                      onChange={e => setTlPaperSize(e.target.value as "A4" | "A3")}
+                      className="px-2 py-1 rounded bg-slate-800 text-white text-xs font-semibold focus:outline-none cursor-pointer border border-indigo-400/40"
+                    >
+                      <option value="A4">A4 (Landscape)</option>
+                      <option value="A3">A3 (Landscape)</option>
+                    </select>
+                  </div>
+
+                  {/* Rows per page selector */}
+                  <div className="flex items-center gap-2 bg-white/10 px-3 py-1 rounded-lg border border-white/20">
+                    <label className="text-xs text-indigo-100 font-medium whitespace-nowrap">แถว/หน้า:</label>
+                    <select
+                      value={rowsPerPage}
+                      onChange={e => setRowsPerPage(parseInt(e.target.value, 10))}
+                      className="px-2 py-1 rounded bg-slate-800 text-white text-xs font-semibold focus:outline-none cursor-pointer border border-indigo-400/40"
+                    >
+                      <option value={8}>8 แถว/หน้า</option>
+                      <option value={10}>10 แถว/หน้า (แนะนำ A4)</option>
+                      <option value={12}>12 แถว/หน้า</option>
+                      <option value={15}>15 แถว/หน้า (แนะนำ A3)</option>
+                      <option value={18}>18 แถว/หน้า</option>
+                      <option value={0}>ทั้งหมดใน 1 หน้า</option>
+                    </select>
+                  </div>
+
+                  <button
+                    onClick={downloadPdf}
+                    disabled={isGeneratingPdf}
+                    className="flex items-center gap-2 px-4 py-1.5 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 disabled:opacity-60 text-white text-xs font-bold rounded-lg shadow-md hover:shadow-lg transition cursor-pointer"
+                  >
+                    {isGeneratingPdf ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />}
+                    {isGeneratingPdf ? "กำลังสร้าง PDF..." : `Download PDF (${totalPages} หน้า)`}
+                  </button>
+
+                  <button
+                    onClick={() => setIsPdfModalOpen(false)}
+                    className="w-8 h-8 rounded-lg bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition cursor-pointer text-lg leading-none"
+                    title="ปิดหน้าต่าง"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+
+              {/* Modal Body: Multi-Page Printable Canvas Preview */}
+              <div className="p-6 bg-slate-300/80 overflow-auto flex-1 flex flex-col items-center gap-6">
+                <div id="tl-pdf-printable-content" className="w-full flex flex-col items-center gap-6" style={{ maxWidth: tlPaperSize === "A3" ? "1480px" : "1180px" }}>
+                  {pages.map((pageItems, pageIdx) => (
+                    <div
+                      key={pageIdx}
+                      className="tl-page-sheet bg-white rounded-xl shadow-xl p-6 border border-slate-300 w-full text-slate-800 flex flex-col justify-between"
+                      style={{ minHeight: tlPaperSize === "A3" ? "780px" : "660px" }}
+                    >
+                      <div>
+                        {/* Document Header on Every Page */}
+                        <div className="border-b-2 border-indigo-700 pb-3 mb-3 flex items-center justify-between gap-4">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] font-bold tracking-wider uppercase text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200">
+                                CMG Bidding Tracker
+                              </span>
+                              <span className="text-[10px] font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+                                หน้า {pageIdx + 1} / {totalPages}
+                              </span>
+                            </div>
+                            <h2 className="text-lg font-black text-slate-900 mt-1">
+                              Bidding Timeline Report {totalPages > 1 ? `(หน้า ${pageIdx + 1}/${totalPages})` : ""}
+                            </h2>
+                            <p className="text-xs text-slate-500 mt-0.5">
+                              ช่วงเวลาแสดงผล: <strong>{monthsInfo.length} เดือน</strong> ({monthsInfo[0]?.label} {monthsInfo[0]?.year} – {monthsInfo[monthsInfo.length - 1]?.label} {monthsInfo[monthsInfo.length - 1]?.year})
+                            </p>
+                          </div>
+                          <div className="text-right text-xs text-slate-600 space-y-0.5">
+                            <div>วันที่ออกรายงาน: <strong className="text-slate-800">{tlReportDate}</strong></div>
+                            <div>ตัวกรอง: <strong className="text-indigo-700">{filterLabel}</strong> ({filtered.length} โครงการ)</div>
+                            <div>มูลค่ารวม: <strong className="text-slate-900">{formatCurrencyCompact(totalFilteredValue)}</strong></div>
+                          </div>
+                        </div>
+
+                        {/* Timeline Table on Every Page with 2-Tier Header */}
+                        <div className="border border-slate-300 rounded-lg overflow-hidden w-full">
+                          {renderTimelineTable(true, pageItems, pageIdx * effectiveRowsPerPage)}
+                        </div>
+                      </div>
+
+                      {/* Document Footer & Legend on Every Page */}
+                      <div className="mt-4 pt-3 border-t border-slate-200 flex flex-wrap items-center justify-between text-xs text-slate-500 gap-3">
+                        <div className="flex flex-wrap items-center gap-3">
+                          <span className="font-bold text-slate-600">Legend:</span>
+                          {Object.entries(statusBarColors).map(([s, cls]) => (
+                            <span key={s} className="flex items-center gap-1">
+                              <span className={`inline-block w-2.5 h-2.5 rounded-xs ${cls}`} />
+                              <span className="text-[10px] text-slate-700">{s}</span>
+                            </span>
+                          ))}
+                        </div>
+                        <div className="text-[10px] text-slate-400 font-medium">
+                          Generated by CMG Bidding Tracker • {tlReportDate} • หน้า {pageIdx + 1} จาก {totalPages}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Modal Bottom Action Bar */}
+              <div className="bg-slate-50 border-t border-slate-200 px-6 py-3 flex items-center justify-between text-xs text-slate-600 shrink-0">
+                <div className="flex items-center gap-2 text-slate-500">
+                  <span>💡 <strong>คำแนะนำ:</strong> กด <strong>Download PDF</strong> เพื่อดาวน์โหลดไฟล์ PDF คุณภาพสูงทันที หรือกดปุ่ม <strong>พิมพ์ (Print)</strong> เพื่อสั่งพิมพ์ผ่านเครื่องพิมพ์</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => setIsPdfModalOpen(false)}
+                    className="px-4 py-2 border border-slate-300 rounded-lg hover:bg-slate-100 font-semibold text-slate-700 transition cursor-pointer"
+                  >
+                    ปิดหน้าต่าง
+                  </button>
+                  <button
+                    onClick={printReport}
+                    className="flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-lg border border-slate-300 transition cursor-pointer"
+                    title="เปิดหน้าต่างพิมพ์ของเบราว์เซอร์"
+                  >
+                    <Printer size={15} />
+                    พิมพ์ (Print)
+                  </button>
+                  <button
+                    onClick={downloadPdf}
+                    disabled={isGeneratingPdf}
+                    className="flex items-center gap-2 px-5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white font-bold rounded-lg shadow transition cursor-pointer"
+                  >
+                    {isGeneratingPdf ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />}
+                    {isGeneratingPdf ? "กำลังสร้างไฟล์ PDF..." : `Download PDF (${totalPages} หน้า)`}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   };
@@ -2023,7 +2247,7 @@ function CMGBiddingApp() {
               </div>
             </div>
           ) : (
-            <>
+            <ErrorBoundary fallbackTitle="เกิดข้อผิดพลาดในการแสดงผลหน้าหลัก">
               {activeTab === "projects"       && <ProjectView />}
               {activeTab === "clients"        && <ClientView />}
               {activeTab === "reports"        && <ReportAnalysisView />}
@@ -2031,107 +2255,208 @@ function CMGBiddingApp() {
               {activeTab === "timeline"       && <TimelineView />}
               {activeTab === "starred"         && <StarredSummaryView />}
               {activeTab === "usermanagement" && isMasterAdmin && <UserManagementView />}
-            </>
+            </ErrorBoundary>
           )}
         </main>
       </div>
 
       {/* MODALS */}
       {isProjectModalOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] flex flex-col">
-            <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-white rounded-t-xl shrink-0">
-              <h3 className="text-xl font-bold text-gray-800">{projectFormData.id ? "Edit Project" : "New Project"}</h3>
-              <button onClick={handleCancelProjectModal} className="text-gray-400 hover:text-gray-600">
-                <XCircle size={24} />
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-3 sm:p-6 overflow-y-auto">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-3xl w-full max-h-[92vh] flex flex-col overflow-hidden border border-slate-200 animate-in fade-in zoom-in-95 duration-200">
+            {/* Top Accent Gradient Bar */}
+            <div className="h-2 w-full bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 shrink-0" />
+
+            <div className="p-5 sm:p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-md shadow-blue-500/20">
+                  <Briefcase size={20} />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-slate-900">
+                    {projectFormData.id
+                      ? `แก้ไขข้อมูลโครงการ (${projectFormData.folderNo || projectFormData.id})`
+                      : "สร้างโครงการประมูลใหม่ (New Project)"}
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    กรอกข้อมูลรายละเอียดโครงการ ข้อมูลลูกค้า กำหนดการ และมูลค่างานประมูล
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={handleCancelProjectModal}
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 transition"
+              >
+                <XCircle size={22} />
               </button>
             </div>
-            <div className="p-6 overflow-y-auto flex-1 bg-white">
+
+            <div className="p-6 overflow-y-auto flex-1 space-y-5 bg-white">
               {/* Section 1: Project Info */}
-              <div className="mb-5">
-                <h4 className="text-xs font-bold text-blue-600 uppercase tracking-wider mb-3 pb-1 border-b border-blue-100">1. Project Info</h4>
-                <div className="grid grid-cols-2 gap-3">
+              <div className="bg-slate-50/80 p-4 rounded-2xl border border-slate-200/80 space-y-3">
+                <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-500 flex items-center gap-1.5 pb-2 border-b border-slate-200/60">
+                  <Briefcase size={14} className="text-blue-500" /> 1. ข้อมูลพื้นฐานโครงการ (Project Info)
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                   <div>
-                    <label className="block text-xs font-medium mb-1 text-gray-600">Bidding ID <span className="text-gray-400">(auto)</span></label>
-                    <input type="text" className="w-full border border-gray-200 rounded-lg p-2 text-gray-500 bg-gray-50 text-sm" value={projectFormData.id || "(Auto-generated)"} readOnly />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium mb-1 text-gray-600">Folder No.</label>
-                    <input type="text" className="w-full border border-gray-300 rounded-lg p-2 text-gray-800 text-sm" value={projectFormData.folderNo} onChange={e => setProjectFormData({ ...projectFormData, folderNo: e.target.value })} />
-                  </div>
-                  <div className="col-span-2">
-                    <label className="block text-xs font-medium mb-1 text-gray-600">Project Name *</label>
-                    <input type="text" className="w-full border border-gray-300 rounded-lg p-2 text-gray-800 text-sm" value={projectFormData.name} onChange={e => setProjectFormData({ ...projectFormData, name: e.target.value })} />
-                  </div>
-                  <div className="col-span-2">
-                    <FileUploadField
-                      label="Project Overview File"
-                      currentUrl={projectFormData.projectOverviewFile}
-                      storagePath={`projects/${projectFormData.id || "new"}/overview`}
-                      onUpload={url => { pendingProjectUploads.current = [...pendingProjectUploads.current, url]; setProjectFormData({ ...projectFormData, projectOverviewFile: url }); }}
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Bidding ID <span className="text-slate-400 font-normal">(Auto-generated)</span>
+                    </label>
+                    <input
+                      type="text"
+                      className="w-full border border-slate-200 rounded-xl px-3.5 py-2 text-xs font-mono text-slate-500 bg-slate-100 cursor-not-allowed"
+                      value={projectFormData.id || "(Auto-assigned upon save)"}
+                      readOnly
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium mb-1 text-gray-600">RFQ No.</label>
-                    <input type="text" className="w-full border border-gray-300 rounded-lg p-2 text-gray-800 text-sm" value={projectFormData.rfqNo} onChange={e => setProjectFormData({ ...projectFormData, rfqNo: e.target.value })} />
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Folder No. / รหัสแฟ้มโครงการ
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="เช่น FL-2026-01"
+                      className="w-full border border-slate-300 rounded-xl px-3.5 py-2 text-sm font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white shadow-2xs"
+                      value={projectFormData.folderNo}
+                      onChange={(e) => setProjectFormData({ ...projectFormData, folderNo: e.target.value })}
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Project Name / ชื่อโครงการ <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="เช่น EPC for Olefins Plant Expansion Phase 2"
+                      className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white shadow-2xs font-semibold"
+                      value={projectFormData.name}
+                      onChange={(e) => setProjectFormData({ ...projectFormData, name: e.target.value })}
+                      required
+                    />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium mb-1 text-gray-600">RFQ Date</label>
-                    <input type="date" className="w-full border border-gray-300 rounded-lg p-2 text-gray-800 text-sm" value={projectFormData.rfqDate} onChange={e => setProjectFormData({ ...projectFormData, rfqDate: e.target.value })} />
+                    <label className="block text-xs font-bold text-slate-700 mb-1">RFQ No.</label>
+                    <input
+                      type="text"
+                      placeholder="เช่น RFQ-PTT-2026-001"
+                      className="w-full border border-slate-300 rounded-xl px-3.5 py-2 text-sm font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white shadow-2xs"
+                      value={projectFormData.rfqNo}
+                      onChange={(e) => setProjectFormData({ ...projectFormData, rfqNo: e.target.value })}
+                    />
                   </div>
-                  <div className="col-span-2">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">RFQ Date</label>
+                    <input
+                      type="date"
+                      className="w-full border border-slate-300 rounded-xl px-3.5 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white shadow-2xs"
+                      value={projectFormData.rfqDate}
+                      onChange={(e) => setProjectFormData({ ...projectFormData, rfqDate: e.target.value })}
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
                     <FileUploadField
-                      label="RFQ File"
+                      label="เอกสารภาพรวมโครงการ (Project Overview File)"
+                      currentUrl={projectFormData.projectOverviewFile}
+                      storagePath={`projects/${projectFormData.id || "new"}/overview`}
+                      onUpload={(url) => {
+                        pendingProjectUploads.current = [...pendingProjectUploads.current, url];
+                        setProjectFormData({ ...projectFormData, projectOverviewFile: url });
+                      }}
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <FileUploadField
+                      label="เอกสาร RFQ (RFQ Document File)"
                       currentUrl={projectFormData.rfqFile}
                       storagePath={`projects/${projectFormData.id || "new"}/rfq`}
-                      onUpload={url => { pendingProjectUploads.current = [...pendingProjectUploads.current, url]; setProjectFormData({ ...projectFormData, rfqFile: url }); }}
+                      onUpload={(url) => {
+                        pendingProjectUploads.current = [...pendingProjectUploads.current, url];
+                        setProjectFormData({ ...projectFormData, rfqFile: url });
+                      }}
                     />
                   </div>
                 </div>
               </div>
 
               {/* Section 2: Classification */}
-              <div className="mb-5">
-                <h4 className="text-xs font-bold text-blue-600 uppercase tracking-wider mb-3 pb-1 border-b border-blue-100">2. Classification</h4>
-                <div className="grid grid-cols-2 gap-3">
+              <div className="bg-slate-50/80 p-4 rounded-2xl border border-slate-200/80 space-y-3">
+                <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-500 flex items-center gap-1.5 pb-2 border-b border-slate-200/60">
+                  <Tag size={14} className="text-indigo-500" /> 2. การจำแนกประเภทและรูปแบบสัญญา (Classification)
+                </h4>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   <div>
-                    <label className="block text-xs font-medium mb-1 text-gray-600">Type Project</label>
-                    <select className="w-full border border-gray-300 rounded-lg p-2 text-gray-800 bg-white text-sm" value={projectFormData.typeProject} onChange={e => setProjectFormData({ ...projectFormData, typeProject: e.target.value })}>
-                      {["Civil", "Building", "EPC", "HVAC", "Electrical", "Precast", "Yearly", "Other"].map(v => <option key={v} value={v}>{v}</option>)}
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Type Project</label>
+                    <select
+                      className="w-full border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 bg-white shadow-2xs focus:ring-2 focus:ring-blue-500"
+                      value={projectFormData.typeProject}
+                      onChange={(e) => setProjectFormData({ ...projectFormData, typeProject: e.target.value })}
+                    >
+                      {["Civil", "Building", "EPC", "HVAC", "Electrical", "Precast", "Yearly", "Other"].map(
+                        (v) => (
+                          <option key={v} value={v}>
+                            {v}
+                          </option>
+                        )
+                      )}
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium mb-1 text-gray-600">Type Contract</label>
-                    <select className="w-full border border-gray-300 rounded-lg p-2 text-gray-800 bg-white text-sm" value={projectFormData.typeContract} onChange={e => setProjectFormData({ ...projectFormData, typeContract: e.target.value })}>
-                      {["MainContract", "SubContract"].map(v => <option key={v} value={v}>{v}</option>)}
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Type Contract</label>
+                    <select
+                      className="w-full border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 bg-white shadow-2xs focus:ring-2 focus:ring-blue-500"
+                      value={projectFormData.typeContract}
+                      onChange={(e) => setProjectFormData({ ...projectFormData, typeContract: e.target.value })}
+                    >
+                      {["MainContract", "SubContract"].map((v) => (
+                        <option key={v} value={v}>
+                          {v}
+                        </option>
+                      ))}
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium mb-1 text-gray-600">Type Bidding</label>
-                    <select className="w-full border border-gray-300 rounded-lg p-2 text-gray-800 bg-white text-sm" value={projectFormData.typeBidding} onChange={e => setProjectFormData({ ...projectFormData, typeBidding: e.target.value })}>
-                      {["Bidding", "Budgetary"].map(v => <option key={v} value={v}>{v}</option>)}
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Type Bidding</label>
+                    <select
+                      className="w-full border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 bg-white shadow-2xs focus:ring-2 focus:ring-blue-500"
+                      value={projectFormData.typeBidding}
+                      onChange={(e) => setProjectFormData({ ...projectFormData, typeBidding: e.target.value })}
+                    >
+                      {["Bidding", "Budgetary"].map((v) => (
+                        <option key={v} value={v}>
+                          {v}
+                        </option>
+                      ))}
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium mb-1 text-gray-600">Contract Case</label>
-                    <select className="w-full border border-gray-300 rounded-lg p-2 text-gray-800 bg-white text-sm" value={projectFormData.contractCase} onChange={e => setProjectFormData({ ...projectFormData, contractCase: e.target.value })}>
-                      {["Lump_Sum", "Unit_Rate"].map(v => <option key={v} value={v}>{v}</option>)}
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Contract Case</label>
+                    <select
+                      className="w-full border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 bg-white shadow-2xs focus:ring-2 focus:ring-blue-500"
+                      value={projectFormData.contractCase}
+                      onChange={(e) => setProjectFormData({ ...projectFormData, contractCase: e.target.value })}
+                    >
+                      <option value="Lump_Sum">Lump Sum</option>
+                      <option value="Unit_Rate">Unit Rate</option>
                     </select>
                   </div>
                 </div>
               </div>
 
               {/* Section 3: Customer */}
-              <div className="mb-5">
-                <h4 className="text-xs font-bold text-blue-600 uppercase tracking-wider mb-3 pb-1 border-b border-blue-100">3. Customer</h4>
-                <div className="grid grid-cols-2 gap-3">
+              <div className="bg-slate-50/80 p-4 rounded-2xl border border-slate-200/80 space-y-3">
+                <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-500 flex items-center gap-1.5 pb-2 border-b border-slate-200/60">
+                  <Building2 size={14} className="text-blue-500" /> 3. ข้อมูลลูกค้า (Customer Selection)
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                   <div>
-                    <label className="block text-xs font-medium mb-1 text-gray-600">Customer Name</label>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      เลือกลูกค้าจากระบบ (Customer Name)
+                    </label>
                     <select
-                      className="w-full border border-gray-300 rounded-lg p-2 text-gray-800 bg-white text-sm"
+                      className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-800 bg-white shadow-2xs focus:ring-2 focus:ring-blue-500"
                       value={projectFormData.customerId}
-                      onChange={e => {
-                        const sel = clients.find(c => c.id === e.target.value);
+                      onChange={(e) => {
+                        const sel = clients.find((c) => c.id === e.target.value);
                         setProjectFormData({
                           ...projectFormData,
                           customerId: e.target.value,
@@ -2140,92 +2465,171 @@ function CMGBiddingApp() {
                         });
                       }}
                     >
-                      <option value="">Select Customer...</option>
-                      {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      <option value="">-- เลือกลูกค้าจาก Part B --</option>
+                      {clients.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name} (#{c.id})
+                        </option>
+                      ))}
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium mb-1 text-gray-600">Customer ID <span className="text-gray-400">(auto)</span></label>
-                    <input type="text" className="w-full border border-gray-200 rounded-lg p-2 text-gray-500 bg-gray-50 text-sm" value={projectFormData.customerId} readOnly />
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Customer ID <span className="text-slate-400 font-normal">(auto)</span>
+                    </label>
+                    <input
+                      type="text"
+                      className="w-full border border-slate-200 rounded-xl px-3.5 py-2 text-xs font-mono text-slate-600 bg-slate-100 cursor-not-allowed"
+                      value={projectFormData.customerId}
+                      readOnly
+                    />
                   </div>
-                  <div className="col-span-2">
-                    <label className="block text-xs font-medium mb-1 text-gray-600">Owner Name <span className="text-gray-400">(auto-filled from Part B)</span></label>
-                    <input type="text" className="w-full border border-gray-300 rounded-lg p-2 text-gray-800 text-sm" value={projectFormData.ownerName} onChange={e => setProjectFormData({ ...projectFormData, ownerName: e.target.value })} />
+                  <div className="sm:col-span-2">
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      ชื่อผู้ติดต่อ / เจ้าของโครงการ (Owner / Contact Person)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="เช่น คุณสมชาย (ดึงอัตโนมัติจาก C1 ใน Part B)"
+                      className="w-full border border-slate-300 rounded-xl px-3.5 py-2 text-xs text-slate-800 bg-white shadow-2xs focus:ring-2 focus:ring-blue-500"
+                      value={projectFormData.ownerName}
+                      onChange={(e) => setProjectFormData({ ...projectFormData, ownerName: e.target.value })}
+                    />
                   </div>
                 </div>
               </div>
 
               {/* Section 4: Dates */}
-              <div className="mb-5">
-                <h4 className="text-xs font-bold text-blue-600 uppercase tracking-wider mb-3 pb-1 border-b border-blue-100">4. Dates</h4>
-                <div className="grid grid-cols-2 gap-3">
+              <div className="bg-slate-50/80 p-4 rounded-2xl border border-slate-200/80 space-y-3">
+                <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-500 flex items-center gap-1.5 pb-2 border-b border-slate-200/60">
+                  <Calendar size={14} className="text-amber-500" /> 4. กำหนดการและไทม์ไลน์ (Important Dates)
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
-                    <label className="block text-xs font-medium mb-1 text-gray-600">Technical Submit Date</label>
-                    <input type="date" className="w-full border border-gray-300 rounded-lg p-2 text-gray-800 text-sm" value={projectFormData.technicalSubDate} onChange={e => setProjectFormData({ ...projectFormData, technicalSubDate: e.target.value })} />
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Technical Submit Date</label>
+                    <input
+                      type="date"
+                      className="w-full border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-800 bg-white shadow-2xs focus:ring-2 focus:ring-blue-500"
+                      value={projectFormData.technicalSubDate}
+                      onChange={(e) =>
+                        setProjectFormData({ ...projectFormData, technicalSubDate: e.target.value })
+                      }
+                    />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium mb-1 text-gray-600">Commercial Submit Date</label>
-                    <input type="date" className="w-full border border-gray-300 rounded-lg p-2 text-gray-800 text-sm" value={projectFormData.commercialSubDate} onChange={e => setProjectFormData({ ...projectFormData, commercialSubDate: e.target.value })} />
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Commercial Submit Date</label>
+                    <input
+                      type="date"
+                      className="w-full border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-800 bg-white shadow-2xs focus:ring-2 focus:ring-blue-500"
+                      value={projectFormData.commercialSubDate}
+                      onChange={(e) =>
+                        setProjectFormData({ ...projectFormData, commercialSubDate: e.target.value })
+                      }
+                    />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium mb-1 text-gray-600">Award Date</label>
-                    <input type="date" className="w-full border border-gray-300 rounded-lg p-2 text-gray-800 text-sm" value={projectFormData.awardDate} onChange={e => setProjectFormData({ ...projectFormData, awardDate: e.target.value })} />
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Award Date</label>
+                    <input
+                      type="date"
+                      className="w-full border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-800 bg-white shadow-2xs focus:ring-2 focus:ring-blue-500"
+                      value={projectFormData.awardDate}
+                      onChange={(e) =>
+                        setProjectFormData({ ...projectFormData, awardDate: e.target.value })
+                      }
+                    />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium mb-1 text-gray-600">Project Plan Start</label>
-                    <input type="date" className="w-full border border-gray-300 rounded-lg p-2 text-gray-800 text-sm" value={projectFormData.projectStart} onChange={e => setProjectFormData({ ...projectFormData, projectStart: e.target.value })} />
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Project Plan Start</label>
+                    <input
+                      type="date"
+                      className="w-full border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-800 bg-white shadow-2xs focus:ring-2 focus:ring-blue-500"
+                      value={projectFormData.projectStart}
+                      onChange={(e) =>
+                        setProjectFormData({ ...projectFormData, projectStart: e.target.value })
+                      }
+                    />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium mb-1 text-gray-600">Project Plan Finish</label>
-                    <input type="date" className="w-full border border-gray-300 rounded-lg p-2 text-gray-800 text-sm" value={projectFormData.projectFinish} onChange={e => setProjectFormData({ ...projectFormData, projectFinish: e.target.value })} />
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Project Plan Finish</label>
+                    <input
+                      type="date"
+                      className="w-full border border-slate-300 rounded-xl px-3 py-2 text-xs text-slate-800 bg-white shadow-2xs focus:ring-2 focus:ring-blue-500"
+                      value={projectFormData.projectFinish}
+                      onChange={(e) =>
+                        setProjectFormData({ ...projectFormData, projectFinish: e.target.value })
+                      }
+                    />
                   </div>
                 </div>
               </div>
 
               {/* Section 5: Financials */}
-              <div className="mb-5">
-                <h4 className="text-xs font-bold text-blue-600 uppercase tracking-wider mb-3 pb-1 border-b border-blue-100">5. Financials & Bid Bond</h4>
-                <div className="grid grid-cols-2 gap-3">
+              <div className="bg-slate-50/80 p-4 rounded-2xl border border-slate-200/80 space-y-3">
+                <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-500 flex items-center gap-1.5 pb-2 border-b border-slate-200/60">
+                  <DollarSign size={14} className="text-emerald-500" /> 5. ข้อมูลการเงินและหลักประกันซอง (Financials & Bid Bond)
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                   <div>
-                    <label className="block text-xs font-medium mb-1 text-gray-600">Budget Estimate (THB)</label>
-                    <input type="number" className="w-full border border-gray-300 rounded-lg p-2 text-gray-800 text-sm" value={projectFormData.budgetEst} onChange={e => setProjectFormData({ ...projectFormData, budgetEst: Number(e.target.value) })} />
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Budget Estimate (THB)</label>
+                    <input
+                      type="number"
+                      placeholder="0"
+                      className="w-full border border-slate-300 rounded-xl px-3.5 py-2 text-xs font-mono text-slate-800 bg-white shadow-2xs focus:ring-2 focus:ring-blue-500"
+                      value={projectFormData.budgetEst || ""}
+                      onChange={(e) =>
+                        setProjectFormData({ ...projectFormData, budgetEst: Number(e.target.value) })
+                      }
+                    />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium mb-1 text-gray-600">Bidding Value (THB)</label>
-                    <input type="number" className="w-full border border-gray-300 rounded-lg p-2 text-gray-800 text-sm" value={projectFormData.biddingValue} onChange={e => setProjectFormData({ ...projectFormData, biddingValue: Number(e.target.value) })} />
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Bidding Value (THB) / มูลค่างานประมูล <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="number"
+                      placeholder="0"
+                      className="w-full border border-slate-300 rounded-xl px-3.5 py-2 text-sm font-mono font-bold text-blue-700 bg-white shadow-2xs focus:ring-2 focus:ring-blue-500"
+                      value={projectFormData.biddingValue || ""}
+                      onChange={(e) =>
+                        setProjectFormData({ ...projectFormData, biddingValue: Number(e.target.value) })
+                      }
+                      required
+                    />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium mb-1 text-gray-600">Bid Bond Req</label>
-                    <select className="w-full border border-gray-300 rounded-lg p-2 text-gray-800 bg-white text-sm" value={projectFormData.bidBondReq} onChange={e => setProjectFormData({ ...projectFormData, bidBondReq: e.target.value })}>
-                      <option value="No">No</option>
-                      <option value="Yes">Yes</option>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Bid Bond Req</label>
+                    <select
+                      className="w-full border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 bg-white shadow-2xs focus:ring-2 focus:ring-blue-500"
+                      value={projectFormData.bidBondReq}
+                      onChange={(e) =>
+                        setProjectFormData({ ...projectFormData, bidBondReq: e.target.value })
+                      }
+                    >
+                      <option value="No">No (ไม่ต้องการ)</option>
+                      <option value="Yes">Yes (ต้องการ)</option>
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium mb-1 text-gray-600">Bid Bond Value (THB)</label>
-                    <input type="number" className="w-full border border-gray-300 rounded-lg p-2 text-gray-800 text-sm" value={projectFormData.bidBondValue} onChange={e => setProjectFormData({ ...projectFormData, bidBondValue: Number(e.target.value) })} />
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Bid Bond Value (THB)</label>
+                    <input
+                      type="number"
+                      placeholder="0"
+                      className="w-full border border-slate-300 rounded-xl px-3.5 py-2 text-xs font-mono text-slate-800 bg-white shadow-2xs focus:ring-2 focus:ring-blue-500"
+                      value={projectFormData.bidBondValue || ""}
+                      onChange={(e) =>
+                        setProjectFormData({ ...projectFormData, bidBondValue: Number(e.target.value) })
+                      }
+                    />
                   </div>
-                  <div className="col-span-2">
-                    <label className="block text-xs font-medium mb-1 text-gray-600">Att Bid Bond (Reference/File)</label>
-                    <input type="text" className="w-full border border-gray-300 rounded-lg p-2 text-gray-800 text-sm" value={projectFormData.attBidBond} onChange={e => setProjectFormData({ ...projectFormData, attBidBond: e.target.value })} placeholder="File path or reference number..." />
-                  </div>
-                  <div className="col-span-2">
-                    <label className="block text-xs font-medium mb-1 text-gray-600 flex items-center gap-1">
-                      <FileText size={12} className="text-blue-500" /> Submit Price File (URL / Path)
-                    </label>
-                    <input type="text" className="w-full border border-gray-300 rounded-lg p-2 text-gray-800 text-sm" value={projectFormData.submitPriceFile} onChange={e => setProjectFormData({ ...projectFormData, submitPriceFile: e.target.value })} placeholder="https://... or \\\\server\\share\\filename.pdf" />
-                    {projectFormData.submitPriceFile && (
-                      <a href={projectFormData.submitPriceFile} target="_blank" rel="noreferrer" className="text-xs text-blue-600 hover:underline mt-1 inline-flex items-center gap-1">
-                        <Eye size={11} /> เปิดไฟล์
-                      </a>
-                    )}
-                  </div>
-                  <div className="col-span-2">
+                  <div className="sm:col-span-2">
                     <FileUploadField
-                      label="Submit Price File (Upload)"
+                      label="ไฟล์เอกสารเสนอราคา (Submit Price File)"
                       currentUrl={projectFormData.submitPriceFile}
                       storagePath={`projects/${projectFormData.id || "new"}/submitprice`}
-                      onUpload={url => { pendingProjectUploads.current = [...pendingProjectUploads.current, url]; setProjectFormData({ ...projectFormData, submitPriceFile: url }); }}
+                      onUpload={(url) => {
+                        pendingProjectUploads.current = [...pendingProjectUploads.current, url];
+                        setProjectFormData({ ...projectFormData, submitPriceFile: url });
+                      }}
                       accept=".pdf,.xlsx,.xls,.doc,.docx,image/*"
                     />
                   </div>
@@ -2233,74 +2637,328 @@ function CMGBiddingApp() {
               </div>
 
               {/* Section 6: Status & Notes */}
-              <div className="mb-2">
-                <h4 className="text-xs font-bold text-blue-600 uppercase tracking-wider mb-3 pb-1 border-b border-blue-100">6. Status & Notes</h4>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="col-span-2">
-                    <label className="block text-xs font-medium mb-1 text-gray-600">Bidding Status</label>
-                    <select className="w-full border border-gray-300 rounded-lg p-2 text-gray-800 bg-white text-sm" value={projectFormData.status} onChange={e => setProjectFormData({ ...projectFormData, status: e.target.value })}>
-                      {["Create", "Submitted", "Negotiate", "Hold", "Cancel", "FinalPrice", "Not_Success", "Success", "Ongoing", "Decline", "Other"].map(v => <option key={v} value={v}>{v}</option>)}
+              <div className="bg-slate-50/80 p-4 rounded-2xl border border-slate-200/80 space-y-3">
+                <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-500 flex items-center gap-1.5 pb-2 border-b border-slate-200/60">
+                  <CheckCircle2 size={14} className="text-emerald-500" /> 6. สถานะและหมายเหตุ (Status & Notes)
+                </h4>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Bidding Status</label>
+                    <select
+                      className="w-full border border-slate-300 rounded-xl px-3.5 py-2 text-xs font-bold text-slate-800 bg-white shadow-2xs focus:ring-2 focus:ring-blue-500"
+                      value={projectFormData.status}
+                      onChange={(e) =>
+                        setProjectFormData({ ...projectFormData, status: e.target.value })
+                      }
+                    >
+                      {[
+                        "Create",
+                        "Submitted",
+                        "Negotiate",
+                        "Hold",
+                        "Cancel",
+                        "FinalPrice",
+                        "Not_Success",
+                        "Success",
+                        "Ongoing",
+                        "Decline",
+                        "Other",
+                      ].map((v) => (
+                        <option key={v} value={v}>
+                          {v}
+                        </option>
+                      ))}
                     </select>
                   </div>
-                  <div className="col-span-2">
-                    <label className="block text-xs font-medium mb-1 text-gray-600">Bidding Note</label>
-                    <textarea className="w-full border border-gray-300 rounded-lg p-2 text-gray-800 text-sm" rows={3} value={projectFormData.biddingNote} onChange={e => setProjectFormData({ ...projectFormData, biddingNote: e.target.value })} placeholder="หมายเหตุ, เหตุผล, รายละเอียดเพิ่มเติม..." />
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Bidding Note / หมายเหตุ
+                    </label>
+                    <textarea
+                      className="w-full border border-slate-300 rounded-xl p-3 text-xs text-slate-800 bg-white shadow-2xs focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                      rows={3}
+                      value={projectFormData.biddingNote}
+                      onChange={(e) =>
+                        setProjectFormData({ ...projectFormData, biddingNote: e.target.value })
+                      }
+                      placeholder="บันทึกรายละเอียด ผลการเจรจา เหตุผล หรือหมายเหตุเพิ่มเติม..."
+                    />
                   </div>
                 </div>
               </div>
             </div>
-            <div className="p-5 border-t border-gray-100 flex justify-end gap-3 bg-gray-50 rounded-b-xl shrink-0">
-              <button onClick={handleCancelProjectModal} className="px-5 py-2.5 border border-gray-300 rounded-lg hover:bg-gray-100 font-medium text-gray-700 transition">Cancel</button>
-              <button onClick={handleSaveProjectModal} className="px-5 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium shadow-sm transition">Save Project</button>
+
+            <div className="p-4 sm:p-5 border-t border-slate-100 flex justify-end gap-2.5 bg-slate-50/80 rounded-b-3xl shrink-0">
+              <button
+                onClick={handleCancelProjectModal}
+                className="px-4 py-2 border border-slate-300 rounded-xl hover:bg-slate-100 font-semibold text-xs text-slate-700 transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveProjectModal}
+                className="px-5 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-xl font-semibold text-xs shadow-md shadow-blue-500/20 transition-all hover:shadow-lg"
+              >
+                Save Project
+              </button>
             </div>
           </div>
         </div>
       )}
 
       {isClientModalOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] flex flex-col">
-            <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-white rounded-t-xl shrink-0">
-              <h3 className="text-xl font-bold text-gray-800">{clientFormData.id ? "Edit Client" : "New Client"}</h3>
-              <button onClick={() => setIsClientModalOpen(false)} className="text-gray-400 hover:text-gray-600">
-                <XCircle size={24} />
-              </button>
-            </div>
-            <div className="p-6 overflow-y-auto flex-1 space-y-6 bg-white">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="col-span-2">
-                  <label className="block text-sm font-medium mb-1 text-gray-700">Client Name *</label>
-                  <input type="text" className="w-full border border-gray-300 rounded-lg p-2.5 text-gray-800" value={clientFormData.name} onChange={e => setClientFormData({ ...clientFormData, name: e.target.value })} />
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-3 sm:p-6 overflow-y-auto">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-2xl w-full max-h-[92vh] flex flex-col overflow-hidden border border-slate-200 animate-in fade-in zoom-in-95 duration-200">
+            {/* Top Accent Bar */}
+            <div className="h-2 w-full bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-500 shrink-0" />
+
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-md shadow-blue-500/20">
+                  <Building2 size={20} />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-1 text-gray-700">Type</label>
-                  <input type="text" className="w-full border border-gray-300 rounded-lg p-2.5 text-gray-800" value={clientFormData.type} onChange={e => setClientFormData({ ...clientFormData, type: e.target.value })} />
+                  <h3 className="text-lg font-bold text-slate-900">
+                    {clientFormData.id ? `แก้ไขข้อมูลลูกค้า (${clientFormData.id})` : "เพิ่มข้อมูลลูกค้าใหม่ (New Client)"}
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    กรอกข้อมูลบริษัทและรายละเอียดผู้ติดต่อสำหรับประสานงานโครงการ
+                  </p>
                 </div>
-                <div className="col-span-2">
-                  <label className="block text-sm font-medium mb-1 text-gray-700">Address</label>
-                  <input type="text" className="w-full border border-gray-300 rounded-lg p-2.5 text-gray-800" value={clientFormData.address} onChange={e => setClientFormData({ ...clientFormData, address: e.target.value })} />
-                </div>
-                <div className="col-span-2 border-t border-gray-100 pt-5 mt-2">
-                  <h4 className="font-bold text-gray-800 flex items-center gap-2 mb-3">Primary Contact (C1)</h4>
-                  <div className="grid grid-cols-3 gap-3">
-                    <input type="text" placeholder="Name" className="w-full border border-gray-300 rounded-lg p-2.5 text-sm text-gray-800" value={clientFormData.c1Name} onChange={e => setClientFormData({ ...clientFormData, c1Name: e.target.value })} />
-                    <input type="text" placeholder="Tel" className="w-full border border-gray-300 rounded-lg p-2.5 text-sm text-gray-800" value={clientFormData.c1Tel} onChange={e => setClientFormData({ ...clientFormData, c1Tel: e.target.value })} />
-                    <input type="text" placeholder="Email" className="w-full border border-gray-300 rounded-lg p-2.5 text-sm text-gray-800" value={clientFormData.c1Email} onChange={e => setClientFormData({ ...clientFormData, c1Email: e.target.value })} />
+              </div>
+              <button
+                onClick={() => setIsClientModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 transition"
+              >
+                <XCircle size={22} />
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto flex-1 space-y-6">
+              {/* Section 1: Company Profile */}
+              <div className="bg-slate-50/80 p-4 rounded-2xl border border-slate-200/80 space-y-3.5">
+                <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-500 flex items-center gap-1.5 pb-2 border-b border-slate-200/60">
+                  <Building2 size={14} className="text-blue-500" /> ข้อมูลทั่วไปของบริษัท (Company Profile)
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                  <div className="sm:col-span-2">
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      ชื่อบริษัท / Client Name <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="เช่น PTT Global Chemical, SCG Chemicals"
+                      className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white shadow-2xs"
+                      value={clientFormData.name}
+                      onChange={(e) => setClientFormData({ ...clientFormData, name: e.target.value })}
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      ประเภทอุตสาหกรรม / Industry Type
+                    </label>
+                    <input
+                      type="text"
+                      list="industrySuggestions"
+                      placeholder="เช่น Petrochemical, Energy, Civil"
+                      className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white shadow-2xs"
+                      value={clientFormData.type}
+                      onChange={(e) => setClientFormData({ ...clientFormData, type: e.target.value })}
+                    />
+                    <datalist id="industrySuggestions">
+                      <option value="Petrochemical" />
+                      <option value="Chemical" />
+                      <option value="Energy" />
+                      <option value="Oil & Gas" />
+                      <option value="Power & Utilities" />
+                      <option value="Civil & Infrastructure" />
+                      <option value="Building & Renovation" />
+                      <option value="Manufacturing" />
+                      <option value="Industrial" />
+                      <option value="Government" />
+                      <option value="Other" />
+                    </datalist>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      รหัสลูกค้า / Client ID <span className="text-slate-400 font-normal">(auto-assign if empty)</span>
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="เช่น C-001"
+                      className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white shadow-2xs"
+                      value={clientFormData.id}
+                      onChange={(e) => setClientFormData({ ...clientFormData, id: e.target.value })}
+                    />
+                  </div>
+
+                  <div className="sm:col-span-2">
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      ที่อยู่บริษัท / Address & Location
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="เช่น 555 ถนนสุขุมวิท ตำบลมาบตาพุด อำเภอเมืองระยอง จังหวัดระยอง"
+                      className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white shadow-2xs"
+                      value={clientFormData.address}
+                      onChange={(e) => setClientFormData({ ...clientFormData, address: e.target.value })}
+                    />
                   </div>
                 </div>
-                <div className="col-span-2 pt-2">
-                  <h4 className="font-bold text-gray-600 flex items-center gap-2 mb-3">Secondary Contact (C2)</h4>
-                  <div className="grid grid-cols-3 gap-3">
-                    <input type="text" placeholder="Name" className="w-full border border-gray-300 rounded-lg p-2.5 text-sm text-gray-800" value={clientFormData.c2Name} onChange={e => setClientFormData({ ...clientFormData, c2Name: e.target.value })} />
-                    <input type="text" placeholder="Tel" className="w-full border border-gray-300 rounded-lg p-2.5 text-sm text-gray-800" value={clientFormData.c2Tel} onChange={e => setClientFormData({ ...clientFormData, c2Tel: e.target.value })} />
-                    <input type="text" placeholder="Email" className="w-full border border-gray-300 rounded-lg p-2.5 text-sm text-gray-800" value={clientFormData.c2Email} onChange={e => setClientFormData({ ...clientFormData, c2Email: e.target.value })} />
+              </div>
+
+              {/* Section 2: Contact 1 (Primary) */}
+              <div className="bg-blue-50/40 p-4 rounded-2xl border border-blue-200/70 space-y-3">
+                <div className="flex items-center justify-between pb-2 border-b border-blue-200/50">
+                  <h4 className="text-xs font-extrabold uppercase tracking-wider text-blue-700 flex items-center gap-1.5">
+                    <User size={14} className="text-blue-600" /> ผู้ติดต่อหลัก (Primary Contact - C1)
+                  </h4>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-blue-600 text-white">
+                    Primary
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">ชื่อผู้ติดต่อ</label>
+                    <input
+                      type="text"
+                      placeholder="เช่น คุณสมชาย เจริญสุข"
+                      className="w-full border border-slate-300 rounded-xl p-2 text-xs text-slate-800 bg-white shadow-2xs focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                      value={clientFormData.c1Name}
+                      onChange={(e) => setClientFormData({ ...clientFormData, c1Name: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">เบอร์โทรศัพท์</label>
+                    <input
+                      type="text"
+                      placeholder="เช่น 081-123-4567"
+                      className="w-full border border-slate-300 rounded-xl p-2 text-xs text-slate-800 bg-white shadow-2xs focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                      value={clientFormData.c1Tel}
+                      onChange={(e) => setClientFormData({ ...clientFormData, c1Tel: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">อีเมล</label>
+                    <input
+                      type="email"
+                      placeholder="เช่น somchai@pttgc.com"
+                      className="w-full border border-slate-300 rounded-xl p-2 text-xs text-slate-800 bg-white shadow-2xs focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                      value={clientFormData.c1Email}
+                      onChange={(e) => setClientFormData({ ...clientFormData, c1Email: e.target.value })}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Section 3: Contact 2 (Secondary) */}
+              <div className="bg-slate-50/70 p-4 rounded-2xl border border-slate-200 space-y-3">
+                <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+                  <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-600 flex items-center gap-1.5">
+                    <User size={14} className="text-slate-400" /> ผู้ติดต่อสำรอง (Secondary Contact - C2)
+                  </h4>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-200 text-slate-600">
+                    Secondary
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">ชื่อผู้ติดต่อ</label>
+                    <input
+                      type="text"
+                      placeholder="เช่น คุณวิชัย มั่นคง"
+                      className="w-full border border-slate-300 rounded-xl p-2 text-xs text-slate-800 bg-white shadow-2xs focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                      value={clientFormData.c2Name}
+                      onChange={(e) => setClientFormData({ ...clientFormData, c2Name: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">เบอร์โทรศัพท์</label>
+                    <input
+                      type="text"
+                      placeholder="เช่น 089-876-5432"
+                      className="w-full border border-slate-300 rounded-xl p-2 text-xs text-slate-800 bg-white shadow-2xs focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                      value={clientFormData.c2Tel}
+                      onChange={(e) => setClientFormData({ ...clientFormData, c2Tel: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">อีเมล</label>
+                    <input
+                      type="email"
+                      placeholder="เช่น wichai@pttgc.com"
+                      className="w-full border border-slate-300 rounded-xl p-2 text-xs text-slate-800 bg-white shadow-2xs focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                      value={clientFormData.c2Email}
+                      onChange={(e) => setClientFormData({ ...clientFormData, c2Email: e.target.value })}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Section 4: Contact 3 (Additional) */}
+              <div className="bg-slate-50/70 p-4 rounded-2xl border border-slate-200 space-y-3">
+                <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+                  <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-600 flex items-center gap-1.5">
+                    <User size={14} className="text-slate-400" /> ผู้ติดต่อเพิ่มเติม (Additional Contact - C3)
+                  </h4>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-200 text-slate-600">
+                    Additional
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">ชื่อผู้ติดต่อ</label>
+                    <input
+                      type="text"
+                      placeholder="เช่น คุณอนันต์ รุ่งเรือง"
+                      className="w-full border border-slate-300 rounded-xl p-2 text-xs text-slate-800 bg-white shadow-2xs focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                      value={clientFormData.c3Name}
+                      onChange={(e) => setClientFormData({ ...clientFormData, c3Name: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">เบอร์โทรศัพท์</label>
+                    <input
+                      type="text"
+                      placeholder="เช่น 082-345-6789"
+                      className="w-full border border-slate-300 rounded-xl p-2 text-xs text-slate-800 bg-white shadow-2xs focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                      value={clientFormData.c3Tel}
+                      onChange={(e) => setClientFormData({ ...clientFormData, c3Tel: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">อีเมล</label>
+                    <input
+                      type="email"
+                      placeholder="เช่น anan@pttgc.com"
+                      className="w-full border border-slate-300 rounded-xl p-2 text-xs text-slate-800 bg-white shadow-2xs focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                      value={clientFormData.c3Email}
+                      onChange={(e) => setClientFormData({ ...clientFormData, c3Email: e.target.value })}
+                    />
                   </div>
                 </div>
               </div>
             </div>
-            <div className="p-6 border-t border-gray-100 flex justify-end gap-3 bg-gray-50 rounded-b-xl shrink-0">
-              <button onClick={() => setIsClientModalOpen(false)} className="px-5 py-2.5 border border-gray-300 rounded-lg hover:bg-gray-100 font-medium text-gray-700 transition">Cancel</button>
-              <button onClick={handleSaveClientModal} className="px-5 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium shadow-sm transition">Save Client</button>
+
+            <div className="p-5 border-t border-slate-100 flex items-center justify-end gap-3 bg-slate-50/80 shrink-0">
+              <button
+                type="button"
+                onClick={() => setIsClientModalOpen(false)}
+                className="px-5 py-2.5 border border-slate-300 rounded-xl hover:bg-slate-100 font-semibold text-xs text-slate-700 transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveClientModal}
+                disabled={!clientFormData.name.trim()}
+                className="px-6 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 disabled:opacity-50 text-white rounded-xl font-bold text-xs shadow-md shadow-blue-500/20 transition-all hover:shadow-lg"
+              >
+                Save Client
+              </button>
             </div>
           </div>
         </div>
