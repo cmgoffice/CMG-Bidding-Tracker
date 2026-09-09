@@ -291,7 +291,7 @@ export const ProjectBiddingView: React.FC<ProjectBiddingViewProps> = ({
   const [showStarredOnly, setShowStarredOnly] = useState(false);
   const [sortField, setSortField] = useState<
     "folderNo" | "name" | "value" | "date" | "status" | "customer"
-  >("date");
+  >("folderNo");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [selectedProjectForDetail, setSelectedProjectForDetail] = useState<ProjectItem | null>(null);
 
@@ -385,7 +385,10 @@ export const ProjectBiddingView: React.FC<ProjectBiddingViewProps> = ({
     return [...filteredProjects].sort((a, b) => {
       let cmp = 0;
       if (sortField === "folderNo") {
-        cmp = String(a.folderNo || "").localeCompare(String(b.folderNo || ""));
+        cmp = String(a.folderNo || "").localeCompare(String(b.folderNo || ""), undefined, {
+          numeric: true,
+          sensitivity: "base",
+        });
       } else if (sortField === "name") {
         cmp = String(a.name || "").localeCompare(String(b.name || ""));
       } else if (sortField === "customer") {
